@@ -512,13 +512,13 @@ CONTAINS
 ! we may pass nunits_tot=0, but we should still have coordinates
       IF (nunits_tot == 0) THEN
          DO iunit = 1, nunits_empty
-            WRITE (unit, '(5X,A,2X,3(F15.10))') &
+            WRITE (unit, '(5X,A,2X,3(F20.10))') &
                TRIM(ADJUSTL(atom_names_empty(iunit))), &
                coordinates_empty(1:3, iunit)*angstrom
          ENDDO
       ELSE
          DO iunit = 1, nunits_tot
-            WRITE (unit, '(5X,A,2X,3(F15.10))') &
+            WRITE (unit, '(5X,A,2X,3(F20.10))') &
                TRIM(ADJUSTL(atom_names(iunit))), &
                coordinates(1:3, iunit)*angstrom
          ENDDO

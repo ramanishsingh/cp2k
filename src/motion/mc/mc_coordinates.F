@@ -96,7 +96,8 @@ CONTAINS
 
 ! initialize some stuff
       loverlap = .FALSE.
-      rmin = 3.57106767_dp ! 1 angstrom squared
+!     rmin = 3.57106767_dp ! 1 angstrom squared
+      rmin = 5.14232722_dp ! 1.2 angstrom squared
 
 ! get the particle coordinates and the cell length
       CALL force_env_get(force_env, cell=cell, subsys=oldsys)

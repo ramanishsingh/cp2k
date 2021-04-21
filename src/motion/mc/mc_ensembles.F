@@ -683,10 +683,10 @@ CONTAINS
 
          ELSE
 
-            IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
-               WRITE (iw, *) "Attempting an inner move"
-               WRITE (iw, *)
-            ENDIF
+            !IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
+            !   WRITE (iw, *) "Attempting an inner move"
+            !   WRITE (iw, *)
+            !ENDIF
 
             DO imove = 1, nmoves
 
@@ -695,6 +695,11 @@ CONTAINS
                IF (rand .LT. pmtraion) THEN
                   ! change molecular conformation
                   ! first, pick a box to do it for
+                  IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
+                     WRITE (iw, *) "Attempting an atom translation move"
+                     WRITE (iw, *)
+                  ENDIF
+
                   IF (ionode) rand = rng_stream%next()
                   CALL mp_bcast(rand, source, group)
                   IF (nboxes .EQ. 2) THEN
@@ -766,6 +771,11 @@ CONTAINS
                ELSEIF (rand .LT. pmtrans) THEN
                   ! translate a whole molecule in the system
                   ! pick a molecule type
+                  IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
+                     WRITE (iw, *) "Attempting a molecular translation move"
+                     WRITE (iw, *)
+                  ENDIF
+
                   IF (ionode) rand = rng_stream%next()
                   CALL mp_bcast(rand, source, group)
                   molecule_type = 0
@@ -798,6 +808,11 @@ CONTAINS
                ELSEIF (rand .LT. pmcltrans) THEN
                   ! translate a whole cluster in the system
                   ! first, pick a box to do it for
+                  IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
+                     WRITE (iw, *) "Attempting a cluster translation move"
+                     WRITE (iw, *)
+                  ENDIF
+
                   IF (ionode) rand = rng_stream%next()
                   CALL mp_bcast(rand, source, group)
 
@@ -819,6 +834,11 @@ CONTAINS
                ELSE
                   !     rotate a whole molecule in the system
                   ! pick a molecule type
+                  IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
+                     WRITE (iw, *) "Attempting a molecular translation move"
+                     WRITE (iw, *)
+                  ENDIF
+
                   IF (ionode) rand = rng_stream%next()
                   CALL mp_bcast(rand, source, group)
                   molecule_type = 0
