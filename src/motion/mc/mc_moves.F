@@ -38,13 +38,16 @@ MODULE mc_moves
                                               cluster_search,&
                                               create_discrete_array,&
                                               generate_cbmc_swap_config,&
-                                              get_center_of_mass
+                                              get_center_of_mass,&
+                                              find_mc_test_molecule,&
+                                              create_inout_list
    USE mc_types,                        ONLY: get_mc_molecule_info,&
                                               get_mc_par,&
                                               mc_ekin_type,&
                                               mc_molecule_info_type,&
                                               mc_moves_type,&
-                                              mc_simpar_type
+                                              mc_simpar_type,&
+                                              mc_moves_p_type
    USE md_run,                          ONLY: qs_mol_dyn
    USE message_passing,                 ONLY: mp_bcast
    USE molecule_kind_list_types,        ONLY: molecule_kind_list_type
@@ -159,7 +162,7 @@ CONTAINS
       LOGICAL                                            :: ionode, lbias, loverlap
       REAL(KIND=dp)                                      :: BETA, bias_energy_new, bias_energy_old, &
                                                             dis_length, exp_max_val, exp_min_val, &
-                                                            rand, value, w
+                                                            rand, value, w, rmin
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: r_new, r_old
       TYPE(cp_subsys_type), POINTER                      :: subsys
       TYPE(mc_molecule_info_type), POINTER               :: mc_molecule_info
@@ -178,7 +181,7 @@ CONTAINS
 ! get a bunch of stuff from mc_par
       CALL get_mc_par(mc_par, lbias=lbias, mc_molecule_info=mc_molecule_info, &
                       BETA=BETA, exp_max_val=exp_max_val, &
-                      exp_min_val=exp_min_val, group=group, source=source, ionode=ionode)
+                      exp_min_val=exp_min_val, rmin=rmin, group=group, source=source, ionode=ionode)
       CALL get_mc_molecule_info(mc_molecule_info, nchains=nchains, nunits=nunits, &
                                 mol_type=mol_type, names=names)
 
@@ -312,11 +315,11 @@ CONTAINS
       IF (lbias) THEN
          CALL check_for_overlap(bias_env, nchains(:, box_number), &
                                 nunits(:), loverlap, mol_type(start_mol:end_mol), &
-                                molecule_number=molecule_number)
+                                molecule_number=molecule_number, rmin=rmin)
       ELSE
          CALL check_for_overlap(force_env, nchains(:, box_number), &
                                 nunits(:), loverlap, mol_type(start_mol:end_mol), &
-                                molecule_number=molecule_number)
+                                molecule_number=molecule_number, rmin=rmin)
          IF (loverlap) lreject = .TRUE.
       ENDIF
 
@@ -452,7 +455,7 @@ CONTAINS
       REAL(dp), DIMENSION(:), POINTER                    :: rmtrans
       REAL(KIND=dp)                                      :: BETA, bias_energy_new, bias_energy_old, &
                                                             dis_mol, exp_max_val, exp_min_val, &
-                                                            rand, value, w
+                                                            rand, value, w, rmin
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: r_old
       TYPE(cp_subsys_type), POINTER                      :: subsys
       TYPE(mc_molecule_info_type), POINTER               :: mc_molecule_info
@@ -470,7 +473,7 @@ CONTAINS
       CALL get_mc_par(mc_par, lbias=lbias, &
                       BETA=BETA, exp_max_val=exp_max_val, &
                       exp_min_val=exp_min_val, rmtrans=rmtrans, ionode=ionode, source=source, &
-                      group=group, mc_molecule_info=mc_molecule_info)
+                      group=group, mc_molecule_info=mc_molecule_info, rmin=rmin)
       CALL get_mc_molecule_info(mc_molecule_info, nunits_tot=nunits_tot, &
                                 nchains=nchains, nunits=nunits, mol_type=mol_type)
 
@@ -557,11 +560,11 @@ CONTAINS
       IF (lbias) THEN
          CALL check_for_overlap(bias_env, nchains(:, box_number), &
                                 nunits(:), loverlap, mol_type(start_mol:end_mol), &
-                                molecule_number=molecule_number)
+                                rmin, molecule_number=molecule_number)
       ELSE
          CALL check_for_overlap(force_env, nchains(:, box_number), &
                                 nunits(:), loverlap, mol_type(start_mol:end_mol), &
-                                molecule_number=molecule_number)
+                                rmin, molecule_number=molecule_number)
          IF (loverlap) lreject = .TRUE.
       ENDIF
 
@@ -675,7 +678,7 @@ CONTAINS
       REAL(dp), DIMENSION(:, :), POINTER                 :: mass
       REAL(KIND=dp) :: BETA, bias_energy_new, bias_energy_old, cosdg, dgamma, exp_max_val, &
          exp_min_val, masstot, nxcm, nycm, nzcm, rand, rx, rxnew, ry, rynew, rz, rznew, sindg, &
-         value, w
+         value, w, rmin
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: r_old
       TYPE(cp_subsys_type), POINTER                      :: subsys
       TYPE(mc_molecule_info_type), POINTER               :: mc_molecule_info
@@ -691,7 +694,7 @@ CONTAINS
       CALL get_mc_par(mc_par, lbias=lbias, &
                       BETA=BETA, exp_max_val=exp_max_val, &
                       exp_min_val=exp_min_val, rmrot=rmrot, mc_molecule_info=mc_molecule_info, &
-                      ionode=ionode, group=group, source=source)
+                      ionode=ionode, group=group, source=source, rmin=rmin)
       CALL get_mc_molecule_info(mc_molecule_info, nunits=nunits, &
                                 nunits_tot=nunits_tot, nchains=nchains, mass=mass, &
                                 mol_type=mol_type)
@@ -858,11 +861,11 @@ CONTAINS
       IF (lbias) THEN
          CALL check_for_overlap(bias_env, nchains(:, box_number), &
                                 nunits(:), loverlap, mol_type(start_mol:end_mol), &
-                                molecule_number=molecule_number)
+                                rmin, molecule_number=molecule_number)
       ELSE
          CALL check_for_overlap(force_env, nchains(:, box_number), &
                                 nunits(:), loverlap, mol_type(start_mol:end_mol), &
-                                molecule_number=molecule_number)
+                                rmin, molecule_number=molecule_number)
          IF (loverlap) lreject = .TRUE.
       ENDIF
 
@@ -981,7 +984,7 @@ CONTAINS
                                                             ltoo_small
       REAL(dp), DIMENSION(:, :), POINTER                 :: mass
       REAL(KIND=dp) :: BETA, discrete_step, energy_term, exp_max_val, exp_min_val, new_energy, &
-         pressure, pressure_term, rand, rcut, rmvolume, temp_var, value, vol_dis, volume_term, w
+         pressure, pressure_term, rand, rcut, rmvolume, temp_var, value, vol_dis, volume_term, w, rmin
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: r
       REAL(KIND=dp), DIMENSION(1:3)                      :: abc, center_of_mass, center_of_mass_new, &
                                                             diff, new_cell_length, old_cell_length
@@ -1002,7 +1005,7 @@ CONTAINS
                       exp_min_val=exp_min_val, source=source, group=group, &
                       dat_file=dat_file, rmvolume=rmvolume, pressure=pressure, cl=cl, &
                       fft_lib=fft_lib, discrete_step=discrete_step, &
-                      ldiscrete=ldiscrete, mc_molecule_info=mc_molecule_info)
+                      ldiscrete=ldiscrete, mc_molecule_info=mc_molecule_info, rmin=rmin)
       CALL get_mc_molecule_info(mc_molecule_info, nchains=nchains, &
                                 nunits=nunits, nunits_tot=nunits_tot, mol_type=mol_type, &
                                 mass=mass)
@@ -1166,7 +1169,7 @@ CONTAINS
 ! check for overlap
       CALL check_for_overlap(force_env, nchains(:, box_number), &
                              nunits(:), loverlap, mol_type(start_mol:end_mol), &
-                             cell_length=new_cell_length)
+                             rmin, cell_length=new_cell_length)
 
 ! figure out if we have overlap problems
       CALL mp_bcast(loverlap, source, group)
@@ -1926,10 +1929,6 @@ CONTAINS
 !>        energy
 !> \param r_old the coordinates of force_env before the move
 !> \param old_energy the energy of the force_env before the move
-!> \param start_atom_swap the number of the swap molecule's first atom, assuming the rest of
-!>        the atoms follow sequentially
-!> \param target_atom the number of the target atom for swapping
-!> \param molecule_type the molecule type for the atom we're swapping
 !> \param box_number the number of the box we're doing this move in
 !> \param bias_energy_old the biased energy of the system before the move
 !> \param last_bias_energy the last biased energy of the system
@@ -1939,36 +1938,39 @@ CONTAINS
 !> \note     Designed for parallel.
 ! **************************************************************************************************
    SUBROUTINE mc_avbmc_move(mc_par, force_env, bias_env, moves, &
-                            energy_check, r_old, old_energy, start_atom_swap, &
-                            target_atom, &
-                            molecule_type, box_number, bias_energy_old, last_bias_energy, &
-                            move_type, rng_stream)
+                            energy_check, r_old, old_energy, &
+                            box_number, bias_energy_old, last_bias_energy, &
+                            rng_stream)
 
       TYPE(mc_simpar_type), POINTER                      :: mc_par
       TYPE(force_env_type), POINTER                      :: force_env, bias_env
-      TYPE(mc_moves_type), POINTER                       :: moves
+      TYPE(mc_moves_p_type), DIMENSION(:, :), POINTER    :: moves
       REAL(KIND=dp), INTENT(INOUT)                       :: energy_check
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: r_old
       REAL(KIND=dp), INTENT(INOUT)                       :: old_energy
-      INTEGER, INTENT(IN)                                :: start_atom_swap, target_atom, &
-                                                            molecule_type, box_number
+      INTEGER, INTENT(IN)                                :: box_number
       REAL(KIND=dp), INTENT(INOUT)                       :: bias_energy_old, last_bias_energy
-      CHARACTER(LEN=*), INTENT(IN)                       :: move_type
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'mc_avbmc_move'
 
-      INTEGER                                            :: end_mol, group, handle, ipart, jbox, &
-                                                            natom, nswapmoves, source, start_mol
-      INTEGER, DIMENSION(:), POINTER                     :: avbmc_atom, mol_type, nunits, nunits_tot
+      CHARACTER(LEN=40)                                  :: move_type, region_type
+      INTEGER                                            :: avbmc_method, swap_atom, target_atom,  &
+                                                            molecule_type_target, molecule_type_swap, &
+                                                            end_mol, group, handle, ipart, jbox, &
+                                                            natom, nswapmoves, source, start_mol, &
+                                                            idum, jdum, imol_type, nmol_types, &
+                                                            nchains_mol, nin, nout, swap_index
+      INTEGER, DIMENSION(:), POINTER                     :: avbmc_atom, mol_type, nunits, nunits_tot, &
+                                                            list_in, list_out
       INTEGER, DIMENSION(:, :), POINTER                  :: nchains
       LOGICAL                                            :: ionode, lbias, ldum, lin, loverlap
-      REAL(dp), DIMENSION(:), POINTER                    :: avbmc_rmax, avbmc_rmin, pbias
+      REAL(dp), DIMENSION(:), POINTER                    :: avbmc_rmax, avbmc_rmin, pbias, &
+                                                            pmavbmc_mol,pmtarget_mol
       REAL(dp), DIMENSION(:, :), POINTER                 :: mass
       REAL(KIND=dp) :: BETA, bias_energy_new, del_quickstep_energy, distance, exp_max_val, &
          exp_min_val, max_val, min_val, new_energy, prefactor, rand, rdum, volume_in, volume_out, &
-         w, weight_new, weight_old
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: r_new
+         w, weight_new, weight_old, rmin
       REAL(KIND=dp), DIMENSION(1:3)                      :: abc, RIJ
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_subsys_type), POINTER                      :: subsys, subsys_force
@@ -1983,13 +1985,14 @@ CONTAINS
       CALL timeset(routineN, handle)
 
 ! get a bunch of stuff from mc_par
-      CALL get_mc_par(mc_par, lbias=lbias, &
+      CALL get_mc_par(mc_par, lbias=lbias, rmin=rmin, &
                       BETA=BETA, max_val=max_val, min_val=min_val, exp_max_val=exp_max_val, &
-                      exp_min_val=exp_min_val, avbmc_atom=avbmc_atom, &
-                      avbmc_rmin=avbmc_rmin, avbmc_rmax=avbmc_rmax, &
+                      exp_min_val=exp_min_val, avbmc_method=avbmc_method, avbmc_atom=avbmc_atom, &
+                      avbmc_rmin=avbmc_rmin, avbmc_rmax=avbmc_rmax, pmavbmc_mol=pmavbmc_mol, &
                       nswapmoves=nswapmoves, ionode=ionode, source=source, &
-                      group=group, pbias=pbias, mc_molecule_info=mc_molecule_info)
-      CALL get_mc_molecule_info(mc_molecule_info, nchains=nchains, &
+                      group=group, pbias=pbias, pmtarget_mol=pmtarget_mol, &
+                      mc_molecule_info=mc_molecule_info)
+      CALL get_mc_molecule_info(mc_molecule_info, nmol_types=nmol_types, nchains=nchains, &
                                 mass=mass, nunits=nunits, nunits_tot=nunits_tot, mol_type=mol_type)
 ! figure out some bounds for mol_type
       start_mol = 1
@@ -2001,9 +2004,6 @@ CONTAINS
 ! nullify some pointers
       NULLIFY (particles, subsys, molecule_kinds, molecule_kind, &
                particles_force, subsys_force)
-
-! do some allocation
-      ALLOCATE (r_new(1:3, 1:nunits_tot(box_number)))
 
 ! now we need to grab and save coordinates, in case we reject
 ! are we biasing this move?
@@ -2032,87 +2032,218 @@ CONTAINS
 
       ENDIF
 
-! let's determine if the molecule to be moved is in the "in" region or the
-! "out" region of the target
-      RIJ(1) = particles%els(start_atom_swap + avbmc_atom(molecule_type) - 1)%r(1) - &
-               particles%els(target_atom)%r(1) - abc(1)*ANINT( &
-               (particles%els(start_atom_swap + avbmc_atom(molecule_type) - 1)%r(1) - &
-                particles%els(target_atom)%r(1))/abc(1))
-      RIJ(2) = particles%els(start_atom_swap + avbmc_atom(molecule_type) - 1)%r(2) - &
-               particles%els(target_atom)%r(2) - abc(2)*ANINT( &
-               (particles%els(start_atom_swap + avbmc_atom(molecule_type) - 1)%r(2) - &
-                particles%els(target_atom)%r(2))/abc(2))
-      RIJ(3) = particles%els(start_atom_swap + avbmc_atom(molecule_type) - 1)%r(3) - &
-               particles%els(target_atom)%r(3) - abc(3)*ANINT( &
-               (particles%els(start_atom_swap + avbmc_atom(molecule_type) - 1)%r(3) - &
-                particles%els(target_atom)%r(3))/abc(3))
-      distance = SQRT(RIJ(1)**2 + RIJ(2)**2 + RIJ(3)**2)
-      IF (distance .LE. avbmc_rmax(molecule_type) .AND. distance .GE. avbmc_rmin(molecule_type)) THEN
-         lin = .TRUE.
-      ELSE
-         lin = .FALSE.
+      ! pick a molecule type to swap
+      IF (ionode) rand = rng_stream%next()
+      CALL mp_bcast(rand, source, group)
+      DO imol_type = 1, nmol_types
+         IF (rand .LT. pmavbmc_mol(imol_type)) THEN
+            molecule_type_swap = imol_type
+            EXIT
+         ENDIF
+      ENDDO
+      WRITE(*,*) 'pick swap molty: ', molecule_type_swap
+
+      ! empty condition
+      nchains_mol = nchains(molecule_type_swap, box_number)
+      IF (nchains_mol .EQ. 0) THEN
+           moves(molecule_type_swap, box_number)%moves%empty_avbmc = &
+                   moves(molecule_type_swap, box_number)%moves%empty_avbmc + 1
+           CALL timestop(handle)
+           RETURN
       ENDIF
 
-! increment the counter of the particular move we've done
-!     swapping into the "in" region of mol_target
-      IF (lin) THEN
-         IF (move_type == 'in') THEN
-            moves%avbmc_inin%attempts = &
-               moves%avbmc_inin%attempts + 1
-         ELSE
-            moves%avbmc_inout%attempts = &
-               moves%avbmc_inout%attempts + 1
+      ! pick a target molecule type
+      IF (ionode)  rand = rng_stream%next()
+      call mp_bcast(rand, source, group)
+      DO imol_type = 1, nmol_types
+         IF(rand .LT. pmtarget_mol(imol_type)) THEN
+            molecule_type_target = imol_type
+            EXIT
          ENDIF
+      ENDDO
+      WRITE(*,*) 'pick target molty: ', molecule_type_swap
+
+      ! empty condition
+      IF (nchains(molecule_type_target, box_number) .EQ. 0 .OR. &
+         (molecule_type_swap .EQ. molecule_type_target .AND. nchains_mol .EQ. 1)) THEN
+          moves(molecule_type_swap, box_number)%moves%empty_avbmc = &
+              moves(molecule_type_swap, box_number)%moves%empty_avbmc + 1
+           CALL timestop(handle)
+           RETURN 
+      ENDIF
+
+      ! pick a molecule of type molecule_type_target as the target molecule
+      IF (ionode) THEN
+         CALL find_mc_test_molecule(mc_molecule_info, &
+                                    target_atom, idum, jdum, rng_stream, &
+                                    box=box_number, molecule_type_old=molecule_type_target)
+      ENDIF
+      CALL mp_bcast(target_atom, source, group) 
+
+      ! add an offset to target atom
+      target_atom = target_atom + avbmc_atom(molecule_type_target) - 1
+      WRITE(*,*) 'target atom: ', target_atom
+
+      !create in & out list of atoms with respect to target atom
+      IF (avbmc_method .EQ. 2) THEN
+         ALLOCATE(list_in(nchains_mol),list_out(nchains_mol))
+         WRITE(*,*) "allocate :", nchains_mol
+         call create_inout_list(list_in, nin, list_out, nout, &
+                               mc_molecule_info, particles, abc, &
+                               molecule_type_swap, avbmc_atom(molecule_type_target), &
+                               target_atom, avbmc_rmin(molecule_type_target), avbmc_rmax(molecule_type_target), box_number)
+         WRITE(*,*) 'nin: ', nin
+         WRITE(*,*) 'nout: ', nout
+         WRITE(*,*) 'list in: ',  list_in(1:nin)
+         WRITE(*,*) 'list out: ', list_out(1:nout)
+      ENDIF
+
+      ! select move type according to pbias
+      if(ionode) rand = rng_stream%next()
+      call mp_bcast(rand, source, group)
+      IF (rand .LT. pbias(molecule_type_swap)) THEN
+         move_type = 'in'
       ELSE
-         IF (move_type == 'in') THEN
-            moves%avbmc_outin%attempts = &
-               moves%avbmc_outin%attempts + 1
+         move_type = 'out'
+      ENDIF
+
+      WRITE(*,*) 'move type ', move_type
+
+      ! empty condition
+      IF (avbmc_method .EQ. 2) THEN
+         IF ((move_type == 'in' .AND. nout .EQ. 0) .OR. &
+              (move_type == 'out' .AND. nin .EQ. 0)) THEN
+            moves(molecule_type_swap, box_number)%moves%empty_avbmc = &
+              moves(molecule_type_swap, box_number)%moves%empty_avbmc + 1
+            DEALLOCATE(list_in, list_out)
+            CALL timestop(handle)
+            RETURN
+         ENDIF
+      ENDIF
+
+      ! pick a molecule of type molecule_type_swap to swap, here is where avbmc 1, 2, 3 differ
+      IF (ionode) THEN
+         ! select from the box
+         IF (avbmc_method .EQ. 1) THEN
+            DO
+               CALL find_mc_test_molecule(mc_molecule_info, &
+                                         swap_atom, idum, jdum, rng_stream, &
+                                         box=box_number, molecule_type_old=molecule_type_swap)
+               IF (swap_atom .NE. (target_atom-avbmc_atom(molecule_type_target)+1)) THEN
+                  EXIT
+               ENDIF
+            ENDDO
+         ELSEIF (avbmc_method .EQ. 2) THEN
+            rand = rng_stream%next()
+            IF(move_type == 'in') THEN
+               ! select from the out region of the target atom
+               swap_index = CEILING(rand*REAL(nout, KIND=dp))
+               swap_atom = list_out(swap_index)
+            ELSE
+               ! select from the in region of the target atom
+               swap_index = CEILING(rand*REAL(nin, KIND=dp))
+               swap_atom = list_in(swap_index)
+            ENDIF
+         ENDIF
+      ENDIF
+      CALL mp_bcast(swap_atom, source, group)
+      WRITE(*,*) 'swap atom without offset: ', swap_atom
+      WRITE(*,*) 'swap atom with offset: ', swap_atom+avbmc_atom(molecule_type_swap) - 1
+
+     ! avbmc1: let's determine if the molecule to be moved is in the "in" region or the
+     ! "out" region of the target
+      IF (avbmc_method .EQ. 1) THEN
+         RIJ(1) = particles%els(swap_atom + avbmc_atom(molecule_type_swap) - 1)%r(1) - &
+                  particles%els(target_atom)%r(1) - abc(1)*ANINT( &
+                  (particles%els(swap_atom + avbmc_atom(molecule_type_swap) - 1)%r(1) - &
+                   particles%els(target_atom)%r(1))/abc(1))
+         RIJ(2) = particles%els(swap_atom + avbmc_atom(molecule_type_swap) - 1)%r(2) - &
+                  particles%els(target_atom)%r(2) - abc(2)*ANINT( &
+                  (particles%els(swap_atom + avbmc_atom(molecule_type_swap) - 1)%r(2) - &
+                   particles%els(target_atom)%r(2))/abc(2))
+         RIJ(3) = particles%els(swap_atom + avbmc_atom(molecule_type_swap) - 1)%r(3) - &
+                  particles%els(target_atom)%r(3) - abc(3)*ANINT( &
+                  (particles%els(swap_atom + avbmc_atom(molecule_type_swap) - 1)%r(3) - &
+                   particles%els(target_atom)%r(3))/abc(3))
+         distance = SQRT(RIJ(1)**2 + RIJ(2)**2 + RIJ(3)**2)
+         IF (distance .LE. avbmc_rmax(molecule_type_target) .AND. distance .GE. avbmc_rmin(molecule_type_target)) THEN
+            lin = .TRUE.
          ELSE
-            moves%avbmc_outout%attempts = &
-               moves%avbmc_outout%attempts + 1
+            lin = .FALSE.
+         ENDIF
+         WRITE(*,*) 'swap atom in? ', lin
+     ENDIF
+
+! increment the counter of the particular move we've done
+      IF (avbmc_method .EQ. 1) THEN
+         ! 4 cases
+         IF (lin) THEN
+            IF (move_type == 'in') THEN
+               moves(molecule_type_swap, box_number)%moves%avbmc_inin%attempts = &
+                  moves(molecule_type_swap, box_number)%moves%avbmc_inin%attempts + 1
+            ELSE
+               moves(molecule_type_swap, box_number)%moves%avbmc_inout%attempts = &
+                  moves(molecule_type_swap, box_number)%moves%avbmc_inout%attempts + 1
+            ENDIF
+         ELSE
+            IF (move_type == 'in') THEN
+               moves(molecule_type_swap, box_number)%moves%avbmc_outin%attempts = &
+                  moves(molecule_type_swap, box_number)%moves%avbmc_outin%attempts + 1
+            ELSE
+               moves(molecule_type_swap, box_number)%moves%avbmc_outout%attempts = &
+                  moves(molecule_type_swap, box_number)%moves%avbmc_outout%attempts + 1
+            ENDIF
+         ENDIF
+      ELSEIF (avbmc_method .EQ. 2) THEN
+         ! 2 cases
+         IF (move_type == 'in') THEN
+            moves(molecule_type_swap, box_number)%moves%avbmc_outin%attempts = &
+               moves(molecule_type_swap, box_number)%moves%avbmc_outin%attempts + 1
+         ELSE
+            moves(molecule_type_swap, box_number)%moves%avbmc_inout%attempts = &
+               moves(molecule_type_swap, box_number)%moves%avbmc_inout%attempts + 1
          ENDIF
       ENDIF
 
       IF (lbias) THEN
-
-         IF (move_type == 'in') THEN
-
-! do CBMC for the old config
-            CALL generate_cbmc_swap_config(bias_env, BETA, max_val, min_val, exp_max_val, &
-                                           exp_min_val, nswapmoves, &
-                                           weight_old, start_atom_swap, nunits_tot(box_number), nunits, nunits(molecule_type), &
-                                           mass(:, molecule_type), ldum, rdum, &
-                                           bias_energy_old, ionode, .TRUE., mol_type(start_mol:end_mol), nchains(:, box_number), &
-                                           source, group, rng_stream, &
-                                           avbmc_atom=avbmc_atom(molecule_type), &
-                                           rmin=avbmc_rmin(molecule_type), rmax=avbmc_rmax(molecule_type), move_type='out', &
-                                           target_atom=target_atom)
-
-         ELSE
-
-! do CBMC for the old config
-            CALL generate_cbmc_swap_config(bias_env, BETA, max_val, min_val, exp_max_val, &
-                                           exp_min_val, nswapmoves, &
-                                           weight_old, start_atom_swap, nunits_tot(box_number), nunits, nunits(molecule_type), &
-                                           mass(:, molecule_type), ldum, rdum, &
-                                           bias_energy_old, ionode, .TRUE., mol_type(start_mol:end_mol), nchains(:, box_number), &
-                                           source, group, rng_stream, &
-                                           avbmc_atom=avbmc_atom(molecule_type), &
-                                           rmin=avbmc_rmin(molecule_type), rmax=avbmc_rmax(molecule_type), move_type='in', &
-                                           target_atom=target_atom)
-
+         ! decide region type for old config
+         IF (avbmc_method .EQ. 1) THEN
+            IF (lin) THEN
+               region_type = 'in'
+            ELSE
+               region_type = 'out'
+            ENDIF
+         ELSEIF (avbmc_method .EQ. 2) THEN
+            IF (move_type == 'in') THEN
+               region_type = 'out'
+            ELSE
+               region_type = 'in'
+            ENDIF
          ENDIF
 
-! generate the new config
-         CALL generate_cbmc_swap_config(bias_env, BETA, max_val, min_val, exp_max_val, &
+! do CBMC for the old config
+         CALL generate_cbmc_swap_config(bias_env, rmin, BETA, max_val, min_val, exp_max_val, &
                                         exp_min_val, nswapmoves, &
-                                        weight_new, start_atom_swap, nunits_tot(box_number), nunits, nunits(molecule_type), &
-                                        mass(:, molecule_type), loverlap, bias_energy_new, &
+                                        weight_old, swap_atom, nunits_tot(box_number), nunits, nunits(molecule_type_swap), &
+                                        mass(:, molecule_type_swap), ldum, rdum, &
+                                        bias_energy_old, ionode, .TRUE., mol_type(start_mol:end_mol), nchains(:, box_number), &
+                                        source, group, rng_stream, &
+                                        avbmc_atom=avbmc_atom(molecule_type_swap), &
+                                        rmin=avbmc_rmin(molecule_type_target), rmax=avbmc_rmax(molecule_type_target), &
+                                        move_type=region_type, target_atom=target_atom)
+! decide region type for new config
+         region_type = move_type
+
+! generate the new config
+         CALL generate_cbmc_swap_config(bias_env, rmin, BETA, max_val, min_val, exp_max_val, &
+                                        exp_min_val, nswapmoves, &
+                                        weight_new, swap_atom, nunits_tot(box_number), nunits, nunits(molecule_type_swap), &
+                                        mass(:, molecule_type_swap), loverlap, bias_energy_new, &
                                         bias_energy_old, ionode, .FALSE., mol_type(start_mol:end_mol), nchains(:, box_number), &
                                         source, group, rng_stream, &
-                                        avbmc_atom=avbmc_atom(molecule_type), &
-                                        rmin=avbmc_rmin(molecule_type), rmax=avbmc_rmax(molecule_type), move_type=move_type, &
-                                        target_atom=target_atom)
+                                        avbmc_atom=avbmc_atom(molecule_type_swap), &
+                                        rmin=avbmc_rmin(molecule_type_target), rmax=avbmc_rmax(molecule_type_target), &
+                                        move_type=region_type, target_atom=target_atom)
 
 ! the energy that comes out of the above routine is the difference...we want
 ! the real energy for the acceptance rule...we don't do this for the
@@ -2122,49 +2253,48 @@ CONTAINS
 
       ELSE
 
-         IF (move_type == 'in') THEN
-
-! find the weight of the old config
-            CALL generate_cbmc_swap_config(force_env, BETA, max_val, min_val, exp_max_val, &
-                                           exp_min_val, nswapmoves, &
-                                           weight_old, start_atom_swap, nunits_tot(box_number), nunits, nunits(molecule_type), &
-                                           mass(:, molecule_type), ldum, rdum, old_energy, &
-                                           ionode, .TRUE., mol_type(start_mol:end_mol), nchains(:, box_number), &
-                                           source, group, rng_stream, &
-                                           avbmc_atom=avbmc_atom(molecule_type), &
-                                           rmin=avbmc_rmin(molecule_type), rmax=avbmc_rmax(molecule_type), move_type='out', &
-                                           target_atom=target_atom)
-
-         ELSE
-
-! find the weight of the old config
-            CALL generate_cbmc_swap_config(force_env, BETA, max_val, min_val, exp_max_val, &
-                                           exp_min_val, nswapmoves, &
-                                           weight_old, start_atom_swap, nunits_tot(box_number), nunits, nunits(molecule_type), &
-                                           mass(:, molecule_type), ldum, rdum, old_energy, &
-                                           ionode, .TRUE., mol_type(start_mol:end_mol), nchains(:, box_number), &
-                                           source, group, rng_stream, &
-                                           avbmc_atom=avbmc_atom(molecule_type), &
-                                           rmin=avbmc_rmin(molecule_type), rmax=avbmc_rmax(molecule_type), move_type='in', &
-                                           target_atom=target_atom)
-
+         IF (avbmc_method .EQ. 1) THEN
+            IF (lin) THEN
+               region_type = 'in'
+            ELSE
+               region_type = 'out'
+            ENDIF
+         ELSEIF (avbmc_method .EQ. 2) THEN
+            IF (move_type == 'in') THEN
+               region_type = 'out'
+            ELSE
+               region_type = 'in'
+            ENDIF
          ENDIF
 
-         ! generate the new config...do this after, because it changes the force_env
-         CALL generate_cbmc_swap_config(force_env, BETA, max_val, min_val, exp_max_val, &
+! find the weight of the old config
+         CALL generate_cbmc_swap_config(force_env, rmin, BETA, max_val, min_val, exp_max_val, &
                                         exp_min_val, nswapmoves, &
-                                        weight_new, start_atom_swap, nunits_tot(box_number), nunits, nunits(molecule_type), &
-                                        mass(:, molecule_type), loverlap, new_energy, old_energy, &
+                                        weight_old, swap_atom, nunits_tot(box_number), nunits, nunits(molecule_type_swap), &
+                                        mass(:, molecule_type_swap), ldum, rdum, old_energy, &
+                                        ionode, .TRUE., mol_type(start_mol:end_mol), nchains(:, box_number), &
+                                        source, group, rng_stream, &
+                                        avbmc_atom=avbmc_atom(molecule_type_swap), &
+                                        rmin=avbmc_rmin(molecule_type_target), rmax=avbmc_rmax(molecule_type_target), &
+                                        move_type=region_type, target_atom=target_atom)
+
+
+         region_type = move_type
+
+         ! generate the new config...do this after, because it changes the force_env
+         CALL generate_cbmc_swap_config(force_env, rmin, BETA, max_val, min_val, exp_max_val, &
+                                        exp_min_val, nswapmoves, &
+                                        weight_new, swap_atom, nunits_tot(box_number), nunits, nunits(molecule_type_swap), &
+                                        mass(:, molecule_type_swap), loverlap, new_energy, old_energy, &
                                         ionode, .FALSE., mol_type(start_mol:end_mol), nchains(:, box_number), &
                                         source, group, rng_stream, &
-                                        avbmc_atom=avbmc_atom(molecule_type), &
-                                        rmin=avbmc_rmin(molecule_type), rmax=avbmc_rmax(molecule_type), move_type=move_type, &
-                                        target_atom=target_atom)
+                                        avbmc_atom=avbmc_atom(molecule_type_swap), &
+                                        rmin=avbmc_rmin(molecule_type_target), rmax=avbmc_rmax(molecule_type_target), &
+                                        move_type=region_type, target_atom=target_atom)
 
       ENDIF
 
       IF (loverlap) THEN
-         DEALLOCATE (r_new)
 
 ! need to reset the old coordinates
          IF (lbias) THEN
@@ -2178,6 +2308,7 @@ CONTAINS
             particles%els(ipart)%r(1:3) = r_old(1:3, ipart)
          ENDDO
 
+         IF(avbmc_method .EQ.2) DEALLOCATE(list_in, list_out)
          CALL timestop(handle)
 
          RETURN
@@ -2202,17 +2333,27 @@ CONTAINS
 
       ENDIF
 
-      volume_in = 4.0_dp/3.0_dp*pi*(avbmc_rmax(molecule_type)**3 - avbmc_rmin(molecule_type)**3)
+      volume_in = 4.0_dp/3.0_dp*pi*(avbmc_rmax(molecule_type_target)**3 - avbmc_rmin(molecule_type_target)**3)
       volume_out = abc(1)*abc(2)*abc(3) - volume_in
 
-      IF (lin .AND. move_type == 'in' .OR. &
-          .NOT. lin .AND. move_type == 'out') THEN
+      IF (avbmc_method .EQ. 1) THEN
+         IF (lin .AND. move_type == 'in' .OR. &
+             .NOT. lin .AND. move_type == 'out') THEN
 ! standard Metropolis rule
-         prefactor = 1.0_dp
-      ELSEIF (.NOT. lin .AND. move_type == 'in') THEN
-         prefactor = (1.0_dp - pbias(molecule_type))*volume_in/(pbias(molecule_type)*volume_out)
-      ELSE
-         prefactor = pbias(molecule_type)*volume_out/((1.0_dp - pbias(molecule_type))*volume_in)
+            prefactor = 1.0_dp
+         ELSEIF (.NOT. lin .AND. move_type == 'in') THEN
+            prefactor = (1.0_dp - pbias(molecule_type_swap))*volume_in/(pbias(molecule_type_swap)*volume_out)
+         ELSE
+            prefactor = pbias(molecule_type_swap)*volume_out/((1.0_dp - pbias(molecule_type_swap))*volume_in)
+         ENDIF
+      ELSEIF (avbmc_method .EQ. 2) THEN
+         IF (move_type == 'in') THEN
+            prefactor = (1.0_dp - pbias(molecule_type_swap))*volume_in/(pbias(molecule_type_swap)*volume_out)
+            prefactor = prefactor*nout/(nin+1)
+         ELSE
+            prefactor = pbias(molecule_type_swap)*volume_out/((1.0_dp - pbias(molecule_type_swap))*volume_in)
+            prefactor = prefactor*nin/(nout+1)
+         ENDIF
       ENDIF
 
       IF (lbias) THEN
@@ -2247,24 +2388,34 @@ CONTAINS
       ENDIF
 
       IF (rand .LT. w) THEN
+         WRITE(*, *) 'move accepted'
 
 ! accept the move
-
-         IF (lin) THEN
-            IF (move_type == 'in') THEN
-               moves%avbmc_inin%successes = &
-                  moves%avbmc_inin%successes + 1
+         IF (avbmc_method .EQ. 1) THEN
+            IF (lin) THEN
+               IF (move_type == 'in') THEN
+                  moves(molecule_type_swap, box_number)%moves%avbmc_inin%successes = &
+                     moves(molecule_type_swap, box_number)%moves%avbmc_inin%successes + 1
+               ELSE
+                  moves(molecule_type_swap, box_number)%moves%avbmc_inout%successes = &
+                     moves(molecule_type_swap, box_number)%moves%avbmc_inout%successes + 1
+               ENDIF
             ELSE
-               moves%avbmc_inout%successes = &
-                  moves%avbmc_inout%successes + 1
+               IF (move_type == 'in') THEN
+                  moves(molecule_type_swap, box_number)%moves%avbmc_outin%successes = &
+                     moves(molecule_type_swap, box_number)%moves%avbmc_outin%successes + 1
+               ELSE
+                  moves(molecule_type_swap, box_number)%moves%avbmc_outout%successes = &
+                     moves(molecule_type_swap, box_number)%moves%avbmc_outout%successes + 1
+               ENDIF
             ENDIF
-         ELSE
+         ELSEIF (avbmc_method .EQ. 2) THEN 
             IF (move_type == 'in') THEN
-               moves%avbmc_outin%successes = &
-                  moves%avbmc_outin%successes + 1
+               moves(molecule_type_swap, box_number)%moves%avbmc_outin%successes = &
+                  moves(molecule_type_swap, box_number)%moves%avbmc_outin%successes + 1
             ELSE
-               moves%avbmc_outout%successes = &
-                  moves%avbmc_outout%successes + 1
+               moves(molecule_type_swap, box_number)%moves%avbmc_inout%successes = &
+                  moves(molecule_type_swap, box_number)%moves%avbmc_inout%successes + 1
             ENDIF
          ENDIF
 
@@ -2310,8 +2461,8 @@ CONTAINS
 
       ENDIF
 
-! deallocate some stuff
-      DEALLOCATE (r_new)
+      IF(avbmc_method .EQ. 2) DEALLOCATE(list_in, list_out)
+
 ! end the timing
       CALL timestop(handle)
 
@@ -2497,7 +2648,7 @@ CONTAINS
       LOGICAL                                            :: ionode, lbias, loverlap
       REAL(KIND=dp)                                      :: BETA, bias_energy_new, bias_energy_old, &
                                                             dis_mol, exp_max_val, exp_min_val, &
-                                                            rand, rmcltrans, value, w
+                                                            rand, rmcltrans, value, w, rmin
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: r_old
       TYPE(cp_subsys_type), POINTER                      :: subsys
       TYPE(mc_molecule_info_type), POINTER               :: mc_molecule_info
@@ -2515,7 +2666,7 @@ CONTAINS
       CALL get_mc_par(mc_par, lbias=lbias, &
                       BETA=BETA, exp_max_val=exp_max_val, &
                       exp_min_val=exp_min_val, rmcltrans=rmcltrans, ionode=ionode, source=source, &
-                      group=group, mc_molecule_info=mc_molecule_info)
+                      group=group, mc_molecule_info=mc_molecule_info, rmin=rmin)
       CALL get_mc_molecule_info(mc_molecule_info, nunits_tot=nunits_tot, &
                                 nchains=nchains, nunits=nunits, mol_type=mol_type)
 
@@ -2634,10 +2785,10 @@ CONTAINS
       lreject = .FALSE.
       IF (lbias) THEN
          CALL check_for_overlap(bias_env, nchains(:, box_number), &
-                                nunits(:), loverlap, mol_type(start_mol:end_mol))
+                                nunits(:), loverlap, mol_type(start_mol:end_mol), rmin)
       ELSE
          CALL check_for_overlap(force_env, nchains(:, box_number), &
-                                nunits(:), loverlap, mol_type(start_mol:end_mol))
+                                nunits(:), loverlap, mol_type(start_mol:end_mol), rmin)
          IF (loverlap) lreject = .TRUE.
       ENDIF
 

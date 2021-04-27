@@ -130,7 +130,7 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: mol_type, nunits, nunits_tot
       INTEGER, DIMENSION(1:nboxes)                       :: diff
       LOGICAL                                            :: ionode, lbias, loverlap
-      REAL(KIND=dp)                                      :: BETA, energies, rand, w
+      REAL(KIND=dp)                                      :: BETA, energies, rand, w, rmin
       REAL(KIND=dp), DIMENSION(1:nboxes)                 :: bias_energy_old, new_energy
       TYPE(cp_subsys_p_type), DIMENSION(:), POINTER      :: subsys_bias
       TYPE(mc_molecule_info_type), POINTER               :: mc_molecule_info
@@ -146,7 +146,7 @@ CONTAINS
       CALL get_mc_par(mc_par(1)%mc_par, ionode=ionode, lbias=lbias, &
                       BETA=BETA, diff=diff(1), source=source, group=group, &
                       iprint=iprint, &
-                      mc_molecule_info=mc_molecule_info)
+                      mc_molecule_info=mc_molecule_info, rmin=rmin)
       CALL get_mc_molecule_info(mc_molecule_info, nmol_types=nmol_types, &
                                 nchains=nchains, nunits_tot=nunits_tot, nunits=nunits, mol_type=mol_type)
 
@@ -240,7 +240,7 @@ CONTAINS
                   ENDDO
                   end_mol = start_mol + SUM(nchains(:, ibox)) - 1
                   CALL check_for_overlap(bias_env(ibox)%force_env, &
-                                         nchains(:, ibox), nunits(:), loverlap, mol_type(start_mol:end_mol))
+                                         nchains(:, ibox), nunits(:), loverlap, mol_type(start_mol:end_mol), rmin)
                   IF (loverlap) &
                      CPABORT('Quickstep move found an overlap in the old config')
                ENDIF
@@ -456,7 +456,7 @@ CONTAINS
       REAL(dp), DIMENSION(:), POINTER                    :: eta_insert, eta_remove, pmswap_mol
       REAL(dp), DIMENSION(:, :), POINTER                 :: insert_coords, remove_coords
       REAL(KIND=dp) :: BETA, del_quickstep_energy, exp_max_val, exp_min_val, max_val, min_val, &
-         prefactor, rand, rdum, vol_insert, vol_remove, w, weight_new, weight_old
+         prefactor, rand, rdum, vol_insert, vol_remove, w, weight_new, weight_old, rmin
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: cbmc_energies, r_cbmc, r_insert_mol
       REAL(KIND=dp), DIMENSION(1:2)                      :: bias_energy_new, new_energy
       REAL(KIND=dp), DIMENSION(1:3)                      :: abc_insert, abc_remove, center_of_mass, &
@@ -488,7 +488,7 @@ CONTAINS
                       max_val=max_val, min_val=min_val, exp_max_val=exp_max_val, &
                       exp_min_val=exp_min_val, nswapmoves=nswapmoves, group=group, source=source, &
                       lbias=lbias, dat_file=dat_file(1), fft_lib=fft_lib, &
-                      mc_molecule_info=mc_molecule_info, pmswap_mol=pmswap_mol)
+                      mc_molecule_info=mc_molecule_info, pmswap_mol=pmswap_mol, rmin=rmin)
       CALL get_mc_molecule_info(mc_molecule_info, nchains=nchains, &
                                 nunits=nunits, nunits_tot=nunits_tot, nmol_types=nmol_types, &
                                 atom_names=atom_names, mass=mass, mol_type=mol_type)
@@ -572,7 +572,7 @@ CONTAINS
          ENDDO
          end_mol = start_mol + SUM(nchains(:, remove_box)) - 1
          CALL check_for_overlap(force_env(remove_box)%force_env, &
-                                nchains(:, remove_box), nunits, loverlap, mol_type(start_mol:end_mol))
+                                nchains(:, remove_box), nunits, loverlap, mol_type(start_mol:end_mol), rmin)
          IF (loverlap) CALL cp_abort(__LOCATION__, &
                                      'CBMC swap move found an overlap in the old remove config')
          start_mol = 1
@@ -581,7 +581,7 @@ CONTAINS
          ENDDO
          end_mol = start_mol + SUM(nchains(:, insert_box)) - 1
          CALL check_for_overlap(force_env(insert_box)%force_env, &
-                                nchains(:, insert_box), nunits, loverlap, mol_type(start_mol:end_mol))
+                                nchains(:, insert_box), nunits, loverlap, mol_type(start_mol:end_mol), rmin)
          IF (loverlap) CALL cp_abort(__LOCATION__, &
                                      'CBMC swap move found an overlap in the old insert config')
       ENDIF
@@ -819,7 +819,7 @@ CONTAINS
       end_mol = start_mol + SUM(nchains_test(:, insert_box)) - 1
 
       IF (lbias) THEN
-         CALL generate_cbmc_swap_config(test_env(insert_box)%force_env, &
+         CALL generate_cbmc_swap_config(test_env(insert_box)%force_env, rmin, &
                                         BETA, max_val, min_val, exp_max_val, &
                                         exp_min_val, nswapmoves, weight_new, start_atom_ins, ins_atoms, nunits(:), &
                                         nunits(molecule_type), mass(:, molecule_type), loverlap_ins, bias_energy_new(insert_box), &
@@ -833,7 +833,7 @@ CONTAINS
          bias_energy_new(insert_box) = bias_energy_new(insert_box) + &
                                        bias_energy_old(insert_box)
       ELSE
-         CALL generate_cbmc_swap_config(test_env(insert_box)%force_env, &
+         CALL generate_cbmc_swap_config(test_env(insert_box)%force_env, rmin, &
                                         BETA, max_val, min_val, exp_max_val, &
                                         exp_min_val, nswapmoves, weight_new, start_atom_ins, ins_atoms, nunits(:), &
                                         nunits(molecule_type), mass(:, molecule_type), loverlap_ins, new_energy(insert_box), &
@@ -957,14 +957,14 @@ CONTAINS
       ENDDO
       end_mol = start_mol + SUM(nchains(:, remove_box)) - 1
       IF (lbias) THEN
-         CALL generate_cbmc_swap_config(bias_env(remove_box)%force_env, &
+         CALL generate_cbmc_swap_config(bias_env(remove_box)%force_env, rmin, &
                                         BETA, max_val, min_val, exp_max_val, &
                                         exp_min_val, nswapmoves, weight_old, start_atom_rem, nunits_tot(remove_box), &
                                         nunits(:), nunits(molecule_type), mass(:, molecule_type), loverlap_rem, rdum, &
                                         bias_energy_new(remove_box), ionode, .TRUE., mol_type(start_mol:end_mol), &
                                         nchains(:, remove_box), source, group, rng_stream)
       ELSE
-         CALL generate_cbmc_swap_config(force_env(remove_box)%force_env, &
+         CALL generate_cbmc_swap_config(force_env(remove_box)%force_env, rmin, &
                                         BETA, max_val, min_val, exp_max_val, &
                                         exp_min_val, nswapmoves, weight_old, start_atom_rem, nunits_tot(remove_box), &
                                         nunits(:), nunits(molecule_type), mass(:, molecule_type), loverlap_rem, rdum, &
@@ -1152,7 +1152,7 @@ CONTAINS
       LOGICAL, DIMENSION(1:2)                            :: lempty
       REAL(dp), DIMENSION(:, :), POINTER                 :: mass
       REAL(KIND=dp)                                      :: BETA, prefactor, rand, rmvolume, &
-                                                            vol_dis, w
+                                                            vol_dis, w, rmin
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: r
       REAL(KIND=dp), DIMENSION(1:2)                      :: new_energy, volume_new, volume_old
       REAL(KIND=dp), DIMENSION(1:3)                      :: center_of_mass, center_of_mass_new, diff
@@ -1175,7 +1175,7 @@ CONTAINS
       CALL get_mc_par(mc_par(1)%mc_par, ionode=ionode, source=source, &
                       group=group, dat_file=dat_file(1), rmvolume=rmvolume, &
                       BETA=BETA, cl=cl, fft_lib=fft_lib, &
-                      mc_molecule_info=mc_molecule_info)
+                      mc_molecule_info=mc_molecule_info, rmin=rmin)
       CALL get_mc_molecule_info(mc_molecule_info, nunits_tot=nunits_tot, &
                                 mass=mass, nchains=nchains, nunits=nunits, mol_type=mol_type)
 
@@ -1317,7 +1317,7 @@ CONTAINS
          end_mol = start_mol + SUM(nchains(:, ibox)) - 1
          CALL check_for_overlap(force_env(ibox)%force_env, &
                                 nchains(:, ibox), nunits, loverlap(ibox), mol_type(start_mol:end_mol), &
-                                cell_length=new_cell_length(:, ibox))
+                                rmin, cell_length=new_cell_length(:, ibox))
 
       ENDDO
 

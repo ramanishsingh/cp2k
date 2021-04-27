@@ -135,7 +135,7 @@ CONTAINS
       INTEGER, DIMENSION(1:nboxes)                       :: box_flag, cl, data_unit, diff, istep, &
                                                             move_unit, rm
       INTEGER, DIMENSION(1:3, 1:2)                       :: discrete_array
-      INTEGER :: atom_number, box_number, cell_unit, com_crd, com_ene, com_mol, end_mol, group, &
+      INTEGER :: avbmc_method, atom_number, box_number, cell_unit, com_crd, com_ene, com_mol, end_mol, group, &
          handle, ibox, idum, imol_type, imolecule, imove, iparticle, iprint, itype, iunit, &
          iuptrans, iupvolume, iw, jbox, jdum, molecule_type, molecule_type_swap, &
          molecule_type_target, nchain_total, nmol_types, nmoves, nnstep, nstart, nstep, source, &
@@ -151,7 +151,7 @@ CONTAINS
                                                             pmhmc_box, pmrot_mol, pmtraion_mol, &
                                                             pmtrans_mol, pmvol_box
       REAL(dp), DIMENSION(:, :), POINTER                 :: conf_prob, mass
-      REAL(KIND=dp)                                      :: discrete_step, pmavbmc, pmcltrans, &
+      REAL(KIND=dp)                                      :: rmin, discrete_step, pmavbmc, pmcltrans, &
                                                             pmhmc, pmswap, pmtraion, pmtrans, &
                                                             pmvolume, rand, test_energy, unit_conv
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: r_temp
@@ -215,7 +215,8 @@ CONTAINS
                       pmtraion=pmtraion, pmtrans=pmtrans, pmcltrans=pmcltrans, iuptrans=iuptrans, &
                       iupvolume=iupvolume, ldiscrete=ldiscrete, pmtraion_mol=pmtraion_mol, &
                       lbias=lbias, iprint=iprint, pmavbmc_mol=pmavbmc_mol, &
-                      discrete_step=discrete_step, fft_lib=fft_lib, avbmc_atom=avbmc_atom, &
+                      discrete_step=discrete_step, fft_lib=fft_lib, avbmc_method=avbmc_method, &
+                      avbmc_atom=avbmc_atom, rmin=rmin, &
                       pmavbmc=pmavbmc, pbias=pbias, mc_molecule_info=mc_molecule_info, &
                       pmrot_mol=pmrot_mol, pmtrans_mol=pmtrans_mol, pmvol_box=pmvol_box(1), &
                       pmclus_box=pmclus_box(1), ensemble=ensemble, pmhmc_box=pmhmc_box(1), lhmc=lhmc)
@@ -303,7 +304,7 @@ CONTAINS
             ENDDO
             end_mol = start_mol + SUM(nchains(:, ibox)) - 1
             CALL check_for_overlap(force_env(ibox)%force_env, nchains(:, ibox), &
-                                   nunits, loverlap, mol_type(start_mol:end_mol))
+                                   nunits, loverlap, mol_type(start_mol:end_mol), rmin)
             IF (loverlap) CPABORT("overlap in an initial configuration")
          ENDIF
 
@@ -596,11 +597,10 @@ CONTAINS
          ELSEIF (rand .LT. pmavbmc) THEN
             ! try an AVBMC move
             IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
-               WRITE (iw, *) "Attempting an AVBMC1 move"
+               WRITE (iw, *) "Attempting an AVBMC move"
                WRITE (iw, *)
             ENDIF
 
-            ! first, pick a box to do it for
             IF (ionode) rand = rng_stream%next()
             CALL mp_bcast(rand, source, group)
 
@@ -614,74 +614,16 @@ CONTAINS
                box_number = 1
             ENDIF
 
-            ! now pick a molecule type to do it for
-            IF (ionode) rand = rng_stream%next()
-            CALL mp_bcast(rand, source, group)
-            molecule_type_swap = 0
-            DO imol_type = 1, nmol_types
-               IF (rand .LT. pmavbmc_mol(imol_type)) THEN
-                  molecule_type_swap = imol_type
-                  EXIT
-               ENDIF
-            ENDDO
-            IF (molecule_type_swap == 0) &
-               CPABORT('Did not choose a molecule type to swap...check AVBMC input')
 
-            ! now pick a molecule, automatically rejecting the move if the
-            ! box is empty or only has one molecule
-            IF (SUM(nchains(:, box_number)) .LE. 1) THEN
-               ! indicate that we tried a move
-               moves(molecule_type_swap, box_number)%moves%empty_avbmc = &
-                  moves(molecule_type_swap, box_number)%moves%empty_avbmc + 1
-            ELSE
-
-               ! pick a molecule to be swapped in the box
-               IF (ionode) THEN
-                  CALL find_mc_test_molecule(mc_molecule_info, &
-                                             start_atom_swap, idum, jdum, rng_stream, &
-                                             box=box_number, molecule_type_old=molecule_type_swap)
-
-                  ! pick a molecule to act as the target in the box...we don't care what type
-                  DO
-                     CALL find_mc_test_molecule(mc_molecule_info, &
-                                                start_atom_target, idum, molecule_type_target, &
-                                                rng_stream, box=box_number)
-                     IF (start_atom_swap .NE. start_atom_target) THEN
-                        start_atom_target = start_atom_target + &
-                                            avbmc_atom(molecule_type_target) - 1
-                        EXIT
-                     ENDIF
-                  ENDDO
-
-                  ! choose if we're swapping into the bonded region of mol_target, or
-                  ! into the nonbonded region
-                  rand = rng_stream%next()
-
-               ENDIF
-               CALL mp_bcast(start_atom_swap, source, group)
-               CALL mp_bcast(box_number, source, group)
-               CALL mp_bcast(start_atom_target, source, group)
-               CALL mp_bcast(rand, source, group)
-
-               IF (rand .LT. pbias(molecule_type_swap)) THEN
-                  move_type_avbmc = 'in'
-               ELSE
-                  move_type_avbmc = 'out'
-               ENDIF
-
-               CALL mc_avbmc_move(mc_par(box_number)%mc_par, &
-                                  force_env(box_number)%force_env, &
-                                  bias_env(box_number)%force_env, &
-                                  moves(molecule_type_swap, box_number)%moves, &
-                                  energy_check(box_number), &
-                                  r_old(:, :, box_number), old_energy(box_number), &
-                                  start_atom_swap, start_atom_target, molecule_type_swap, &
-                                  box_number, bias_energy(box_number), &
-                                  last_bias_energy(box_number), &
-                                  move_type_avbmc, rng_stream)
-
-            ENDIF
-
+            CALL mc_avbmc_move(mc_par(box_number)%mc_par, &
+                               force_env(box_number)%force_env, &
+                               bias_env(box_number)%force_env, &
+                               moves, &
+                               energy_check(box_number), &
+                               r_old(:, :, box_number), old_energy(box_number), &
+                               box_number, bias_energy(box_number), &
+                               last_bias_energy(box_number), &
+                               rng_stream)
          ELSE
 
             !IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
@@ -1002,7 +944,7 @@ CONTAINS
                   end_mol = start_mol + SUM(nchains(:, ibox)) - 1
                   CALL check_for_overlap(force_env(ibox)%force_env, &
                                          nchains(:, ibox), nunits, loverlap, &
-                                         mol_type(start_mol:end_mol))
+                                         mol_type(start_mol:end_mol), rmin)
                   IF (loverlap) THEN
                      IF (iw > 0) WRITE (iw, *) nnstep
                      CPABORT('coordinate overlap at the end of the above step')
@@ -1207,7 +1149,7 @@ CONTAINS
                                                             virial_temps
       REAL(dp), DIMENSION(:, :), POINTER                 :: mass, mayer, r_old
       REAL(KIND=dp) :: ave_virial, current_value, distance, exp_max_val, exp_min_val, exponent, &
-         integral, previous_value, square_value, trial_energy, triangle_value
+         integral, previous_value, square_value, trial_energy, triangle_value, rmin
       REAL(KIND=dp), DIMENSION(1:3)                      :: abc, center_of_mass
       TYPE(cell_p_type), DIMENSION(:), POINTER           :: cell
       TYPE(cp_subsys_p_type), DIMENSION(:), POINTER      :: subsys
@@ -1252,7 +1194,7 @@ CONTAINS
       CALL get_mc_par(mc_par(1)%mc_par, &
                       exp_max_val=exp_max_val, &
                       exp_min_val=exp_min_val, nvirial=nvirial, &
-                      ionode=ionode, source=source, group=group, &
+                      ionode=ionode, source=source, group=group, rmin=rmin, &
                       mc_molecule_info=mc_molecule_info, virial_temps=virial_temps)
 
       IF (iw > 0) THEN
@@ -1368,7 +1310,7 @@ CONTAINS
             ENDDO
 
             ! check for overlaps
-            CALL check_for_overlap(force_env(1)%force_env, nchains(:, 1), nunits, loverlap, mol_type)
+            CALL check_for_overlap(force_env(1)%force_env, nchains(:, 1), nunits, loverlap, mol_type, rmin)
 
             ! compute the energy if there is no overlap
             ! exponent is exp(-beta*energy)-1, also called the Mayer term

@@ -164,7 +164,7 @@ CONTAINS
       CPASSERT(.NOT. ASSOCIATED(section))
       CALL section_create(section, __LOCATION__, name="mc", &
                           description="This section sets parameters to set up a MonteCarlo calculation.", &
-                          n_keywords=10, n_subsections=2, repeats=.FALSE.)
+                          n_keywords=11, n_subsections=2, repeats=.FALSE.)
 
       NULLIFY (keyword, subsection)
 
@@ -221,6 +221,13 @@ CONTAINS
                           description="The cluster cut off radius in angstroms.", &
                           usage="RCLUS {real}", &
                           default_r_val=1.0E0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="RMIN", &
+                          description="Distance cutoff for overlapping condition.", &
+                          usage="RMIN {real}", &
+                          default_r_val=1.2E0_dp)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 

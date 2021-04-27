@@ -43,7 +43,8 @@ MODULE mc_coordinates
              create_discrete_array, &
              check_for_overlap, &
              rotate_molecule, &
-             cluster_search
+             cluster_search, &
+             create_inout_list
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'mc_coordinates'
 
@@ -64,13 +65,14 @@ CONTAINS
 !>      Suitable for parallel use.
 !> \author MJM
 ! **************************************************************************************************
-   SUBROUTINE check_for_overlap(force_env, nchains, nunits, loverlap, mol_type, &
+   SUBROUTINE check_for_overlap(force_env, nchains, nunits, loverlap, mol_type, rmin, &
                                 cell_length, molecule_number)
 
       TYPE(force_env_type), POINTER                      :: force_env
       INTEGER, DIMENSION(:), INTENT(IN)                  :: nchains, nunits
       LOGICAL, INTENT(OUT)                               :: loverlap
       INTEGER, DIMENSION(:), INTENT(IN)                  :: mol_type
+      REAL(KIND=dp),INTENT(IN)                           :: rmin
       REAL(KIND=dp), DIMENSION(1:3), INTENT(IN), &
          OPTIONAL                                        :: cell_length
       INTEGER, INTENT(IN), OPTIONAL                      :: molecule_number
@@ -81,7 +83,7 @@ CONTAINS
                                                             junit, nend, nstart, nunit, nunits_i, &
                                                             nunits_j
       LOGICAL                                            :: lall
-      REAL(KIND=dp)                                      :: dist, rmin
+      REAL(KIND=dp)                                      :: distsq, rminsq
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: r
       REAL(KIND=dp), DIMENSION(1:3)                      :: abc, box_length, RIJ
       TYPE(cell_type), POINTER                           :: cell
@@ -96,8 +98,7 @@ CONTAINS
 
 ! initialize some stuff
       loverlap = .FALSE.
-!     rmin = 3.57106767_dp ! 1 angstrom squared
-      rmin = 5.14232722_dp ! 1.2 angstrom squared
+      rminsq = rmin*rmin
 
 ! get the particle coordinates and the cell length
       CALL force_env_get(force_env, cell=cell, subsys=oldsys)
@@ -154,9 +155,9 @@ CONTAINS
                            box_length(3)*ANINT( &
                            (r(3, iunit, imol) - r(3, junit, jmol))/box_length(3))
 
-                  dist = RIJ(1)**2 + RIJ(2)**2 + RIJ(3)**2
+                  distsq = RIJ(1)**2 + RIJ(2)**2 + RIJ(3)**2
 
-                  IF (dist < rmin) THEN
+                  IF (distsq < rminsq) THEN
                      loverlap = .TRUE.
                      DEALLOCATE (r)
 
@@ -324,14 +325,14 @@ CONTAINS
 !>      Suitable for parallel.
 !> \author MJM
 ! **************************************************************************************************
-   SUBROUTINE generate_cbmc_swap_config(force_env, BETA, max_val, min_val, exp_max_val, &
+   SUBROUTINE generate_cbmc_swap_config(force_env, rmin_overlap, BETA, max_val, min_val, exp_max_val, &
                                         exp_min_val, nswapmoves, rosenbluth_weight, start_atom, natoms_tot, nunits, nunits_mol, &
                                         mass, loverlap, choosen_energy, old_energy, ionode, lremove, mol_type, nchains, source, &
                                         group, rng_stream, avbmc_atom, rmin, rmax, move_type, target_atom)
 
       TYPE(force_env_type), POINTER                      :: force_env
       REAL(KIND=dp), INTENT(IN)                          :: BETA, max_val, min_val, exp_max_val, &
-                                                            exp_min_val
+                                                            exp_min_val, rmin_overlap
       INTEGER, INTENT(IN)                                :: nswapmoves
       REAL(KIND=dp), INTENT(OUT)                         :: rosenbluth_weight
       INTEGER, INTENT(IN)                                :: start_atom, natoms_tot
@@ -429,7 +430,7 @@ CONTAINS
 
       IF (lremove) THEN
          CALL check_for_overlap(force_env, nchains, nunits, loverlap_array(1), &
-                                mol_type)
+                                mol_type, rmin_overlap)
          CALL mp_bcast(loverlap_array(1), source, group)
 
          IF (loverlap_array(1)) THEN
@@ -501,7 +502,7 @@ CONTAINS
          ENDDO
 
          CALL check_for_overlap(force_env, nchains, nunits, loverlap_array(imove), &
-                                mol_type, molecule_number=molecule_number)
+                                mol_type, rmin_overlap, molecule_number=molecule_number)
          IF (loverlap_array(imove)) THEN
             boltz_weights(imove) = 0.0_dp
             CYCLE
@@ -1144,6 +1145,99 @@ CONTAINS
       CALL timestop(handle)
 
    END SUBROUTINE cluster_search
+
+! ************** ************************************************************************************
+!> \brief generates a list atoms in the in and out region of the target atom, where the "in" volume
+!> is a shell with inner radius rmin and outer radius rmax
+!> \param abc the lengths of the sides of the simulation box
+!> \param molecule_type the type of molecule the atoms should belong to
+!> \param avbmc_atom avbmc_atom of molecule_type
+!> \param rmin  the minimum AVBMC radius for the shell around the target
+!> \param rmax the maximum AVBMC radius for the shell around the target
+!> \param box_number the box the chosen molecule is in
+! **************************************************************************************************
+   SUBROUTINE create_inout_list(list_in, nin, list_out, nout, &
+                               mc_molecule_info, particles, abc, &
+                               molecule_type, avbmc_atom, &
+                               target_atom, rmin, rmax, box_number)
+      TYPE(mc_molecule_info_type), POINTER               :: mc_molecule_info
+      INTEGER, INTENT(OUT)                               :: nin, nout
+      INTEGER, INTENT(IN)                                :: molecule_type, avbmc_atom, &
+                                                            target_atom, box_number
+      REAL(KIND=dp), DIMENSION(1:3), INTENT(IN)          :: abc
+      REAL(KIND=dp), INTENT(IN)                          :: rmin, rmax
+      TYPE(particle_list_type), POINTER                  :: particles
+
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_inout_list'
+
+      INTEGER                                            :: handle, imol_type, imolecule, jatom, &
+                                                            jbox, molecule_number, start_mol, start_atom
+      INTEGER, DIMENSION(:), POINTER                     :: mol_type, nunits, &
+                                                            list_in, list_out
+      INTEGER, DIMENSION(:, :), POINTER                  :: nchains
+      REAL(KIND=dp)                                      :: rand, rijsq, rmaxsq, rminsq
+      REAL(KIND=dp), DIMENSION(1:3)                      :: RIJ
+
+! begin the timing of the subroutine
+
+      CALL timeset(routineN, handle)
+
+      NULLIFY (nunits, mol_type, nchains)
+      CALL get_mc_molecule_info(mc_molecule_info, nchains=nchains, nunits=nunits, &
+                                mol_type=mol_type)
+
+! initialize the outgoing variables
+      nin = 0
+      nout = 0
+
+! adjust to take into account molecules in previous boxes
+      start_mol = 1
+      DO jbox = 1, box_number - 1
+         start_mol = start_mol + SUM(nchains(:, jbox))
+      ENDDO
+
+! adjust to take into account molecules of other types in the box
+      DO imol_type = 1, molecule_type - 1
+         start_mol = start_mol + nchains(imol_type, box_number)
+      ENDDO
+
+! find the atom number offset
+      start_atom = 1
+      DO imolecule = 1, start_mol - 1
+         start_atom = start_atom + nunits(mol_type(start_mol + imolecule - 1))
+      ENDDO
+
+      rmaxsq = rmax*rmax
+      rminsq = rmin*rmin
+      DO molecule_number = 1, nchains(molecule_type, box_number)
+         ! find the avbmc atom number of this molecule
+         jatom  =  start_atom + avbmc_atom - 1
+         ! exclude the target atom itself
+         IF (jatom .EQ. target_atom) THEN
+             start_atom = start_atom + nunits(molecule_type)
+             CYCLE
+         ENDIF
+         RIJ(1) = particles%els(jatom)%r(1) - particles%els(target_atom)%r(1) - &
+                  abc(1)*ANINT((particles%els(jatom)%r(1) - particles%els(target_atom)%r(1))/abc(1))
+         RIJ(2) = particles%els(jatom)%r(2) - particles%els(target_atom)%r(2) - &
+                  abc(2)*ANINT((particles%els(jatom)%r(2) - particles%els(target_atom)%r(2))/abc(2))
+         RIJ(3) = particles%els(jatom)%r(3) - particles%els(target_atom)%r(3) - &
+                  abc(3)*ANINT((particles%els(jatom)%r(3) - particles%els(target_atom)%r(3))/abc(3))
+         rijsq = RIJ(1)**2 + RIJ(2)**2 + RIJ(3)**2
+         WRITE(*,*) 'jatom ', jatom, 'rijsq ', rijsq
+         IF (rijsq .LE. rmaxsq .AND. rijsq .GE. rminsq) THEN
+            nin = nin + 1
+            list_in(nin) = start_atom
+         ELSE
+            nout = nout + 1
+            list_out(nout) = start_atom
+         ENDIF
+         start_atom = start_atom + nunits(molecule_type)
+     ENDDO
+
+     CALL timestop(handle)
+
+   END SUBROUTINE
 
 END MODULE mc_coordinates
 
