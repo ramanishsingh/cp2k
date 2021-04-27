@@ -483,8 +483,13 @@ CONTAINS
             ENDDO
 
 ! rotate the molecule...this routine is only made for serial use
-            CALL rotate_molecule(r(:, start_atom:end_atom, imove), mass(:), &
-                                 nunits_mol, rng_stream)
+            IF (PRESENT(avbmc_atom)) THEN
+               CALL rotate_molecule(r(:, start_atom:end_atom, imove), mass(:), &
+                                    nunits_mol, rng_stream, center_atom=avbmc_atom)
+            ELSE
+               CALL rotate_molecule(r(:, start_atom:end_atom, imove), mass(:), &
+                                    nunits_mol, rng_stream)                    
+            ENDIF
 
             IF (imove == 1 .AND. lremove) THEN
                DO iatom = 1, natoms_tot
@@ -624,13 +629,14 @@ CONTAINS
 !>    Use only in serial.
 !> \author MJM
 ! **************************************************************************************************
-   SUBROUTINE rotate_molecule(r, mass, natoms, rng_stream)
+   SUBROUTINE rotate_molecule(r, mass, natoms, rng_stream, center_atom)
 
       INTEGER, INTENT(IN)                                :: natoms
       REAL(KIND=dp), DIMENSION(1:natoms), INTENT(IN)     :: mass
       REAL(KIND=dp), DIMENSION(1:3, 1:natoms), &
          INTENT(INOUT)                                   :: r
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
+      INTEGER, INTENT(IN), OPTIONAL                      :: center_atom
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'rotate_molecule'
 
@@ -643,9 +649,6 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-! find the center of mass of the molecule
-      CALL get_center_of_mass(r(:, :), natoms, center_of_mass(:), mass(:))
-
 ! call a random number to figure out how far we're moving
       rand = rng_stream%next()
       dgamma = pi*(rand - 0.5E0_dp)*2.0E0_dp
@@ -655,44 +658,87 @@ CONTAINS
       cosdg = COS(dgamma)
       sindg = SIN(dgamma)
 
+      IF (PRESENT(center_atom)) THEN
+
+         DO iunit = 1, natoms
+            IF (iunit .EQ. center_atom) CYCLE
+            ry = r(2, iunit) - r(2, center_atom)
+            rz = r(3, iunit) - r(3, center_atom)
+            rynew = cosdg*ry + sindg*rz
+            rznew = cosdg*rz - sindg*ry
+
+            r(2, iunit) = rynew + r(2, center_atom)
+            r(3, iunit) = rznew + r(3, center_atom)
+
+         ENDDO
+
+         DO iunit = 1, natoms
+            IF (iunit .EQ. center_atom) CYCLE
+            rx = r(1, iunit) - r(1, center_atom)
+            rz = r(3, iunit) - r(3, center_atom)
+            rxnew = cosdg*rx + sindg*rz
+            rznew = cosdg*rz - sindg*rx
+
+            r(1, iunit) = rxnew + r(1, center_atom)
+            r(3, iunit) = rznew + r(3, center_atom)
+
+         ENDDO
+
+         DO iunit = 1, natoms
+            IF (iunit .EQ. center_atom) CYCLE
+            rx = r(1, iunit) - r(1, center_atom)
+            ry = r(2, iunit) - r(2, center_atom)
+            rxnew = cosdg*rx + sindg*ry
+            rynew = cosdg*ry - sindg*rx
+
+            r(1, iunit) = rxnew + r(1, center_atom)
+            r(2, iunit) = rynew + r(2, center_atom)
+
+         ENDDO
+      ELSE        
+
+! find the center of mass of the molecule
+         CALL get_center_of_mass(r(:, :), natoms, center_of_mass(:), mass(:))
+              
 ! ***    ROTATE UNITS OF I AROUND X-AXIS ***
 
-      DO iunit = 1, natoms
-         ry = r(2, iunit) - center_of_mass(2)
-         rz = r(3, iunit) - center_of_mass(3)
-         rynew = cosdg*ry + sindg*rz
-         rznew = cosdg*rz - sindg*ry
+         DO iunit = 1, natoms
+            ry = r(2, iunit) - center_of_mass(2)
+            rz = r(3, iunit) - center_of_mass(3)
+            rynew = cosdg*ry + sindg*rz
+            rznew = cosdg*rz - sindg*ry
 
-         r(2, iunit) = rynew + center_of_mass(2)
-         r(3, iunit) = rznew + center_of_mass(3)
+            r(2, iunit) = rynew + center_of_mass(2)
+            r(3, iunit) = rznew + center_of_mass(3)
 
-      ENDDO
+         ENDDO
 
 ! ***    ROTATE UNITS OF I AROUND y-AXIS ***
 
-      DO iunit = 1, natoms
-         rx = r(1, iunit) - center_of_mass(1)
-         rz = r(3, iunit) - center_of_mass(3)
-         rxnew = cosdg*rx + sindg*rz
-         rznew = cosdg*rz - sindg*rx
+         DO iunit = 1, natoms
+            rx = r(1, iunit) - center_of_mass(1)
+            rz = r(3, iunit) - center_of_mass(3)
+            rxnew = cosdg*rx + sindg*rz
+            rznew = cosdg*rz - sindg*rx
 
-         r(1, iunit) = rxnew + center_of_mass(1)
-         r(3, iunit) = rznew + center_of_mass(3)
+            r(1, iunit) = rxnew + center_of_mass(1)
+            r(3, iunit) = rznew + center_of_mass(3)
 
-      ENDDO
+         ENDDO
 
 ! ***    ROTATE UNITS OF I AROUND z-AXIS ***
 
-      DO iunit = 1, natoms
-         rx = r(1, iunit) - center_of_mass(1)
-         ry = r(2, iunit) - center_of_mass(2)
-         rxnew = cosdg*rx + sindg*ry
-         rynew = cosdg*ry - sindg*rx
+         DO iunit = 1, natoms
+            rx = r(1, iunit) - center_of_mass(1)
+            ry = r(2, iunit) - center_of_mass(2)
+            rxnew = cosdg*rx + sindg*ry
+            rynew = cosdg*ry - sindg*rx
 
-         r(1, iunit) = rxnew + center_of_mass(1)
-         r(2, iunit) = rynew + center_of_mass(2)
+            r(1, iunit) = rxnew + center_of_mass(1)
+            r(2, iunit) = rynew + center_of_mass(2)
 
-      ENDDO
+         ENDDO
+      ENDIF   
 
 ! end the timing
       CALL timestop(handle)
