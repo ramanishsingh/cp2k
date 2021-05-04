@@ -146,7 +146,7 @@ CONTAINS
                                                             molecules_file, moves_file
       LOGICAL                                            :: ionode, lbias, ldiscrete, lhmc, &
                                                             lnew_bias_env, loverlap, lreject, &
-                                                            lstop, should_stop
+                                                            lstop, should_stop, lempty
       REAL(dp), DIMENSION(:), POINTER                    :: pbias, pmavbmc_mol, pmclus_box, &
                                                             pmhmc_box, pmrot_mol, pmtraion_mol, &
                                                             pmtrans_mol, pmvol_box
@@ -614,22 +614,43 @@ CONTAINS
                box_number = 1
             ENDIF
 
+            ! now pick a molecule type to do it for
+            IF (ionode) rand = rng_stream%next()
+            CALL mp_bcast(rand, source, group)
+            molecule_type_swap = 0
+            DO imol_type = 1, nmol_types
+               IF (rand .LT. pmavbmc_mol(imol_type)) THEN
+                  molecule_type_swap = imol_type
+                  EXIT
+               ENDIF
+            ENDDO
+            IF (molecule_type_swap == 0) &
+               CPABORT('Did not choose a molecule type to swap...check AVBMC input')
 
-            CALL mc_avbmc_move(mc_par(box_number)%mc_par, &
-                               force_env(box_number)%force_env, &
-                               bias_env(box_number)%force_env, &
-                               moves, &
-                               energy_check(box_number), &
-                               r_old(:, :, box_number), old_energy(box_number), &
-                               box_number, bias_energy(box_number), &
-                               last_bias_energy(box_number), &
-                               rng_stream)
+            IF (nchains(molecule_type_swap, box_number) .EQ. 0) THEN
+                moves(molecule_type_swap, box_number)%moves%empty_avbmc = &
+                   moves(molecule_type_swap, box_number)%moves%empty_avbmc + 1
+            ELSE
+               CALL mc_avbmc_move(mc_par(box_number)%mc_par, &
+                                  force_env(box_number)%force_env, &
+                                  bias_env(box_number)%force_env, &
+                                  moves(molecule_type_swap, box_number)%moves, &
+                                  energy_check(box_number), &
+                                  r_old(:, :, box_number), old_energy(box_number), &
+                                  molecule_type_swap, box_number, bias_energy(box_number), &
+                                  last_bias_energy(box_number), &
+                                  lempty, rng_stream)
+               IF (lempty) THEN
+                  moves(molecule_type_swap, box_number)%moves%empty_avbmc = &
+                     moves(molecule_type_swap, box_number)%moves%empty_avbmc + 1
+               ENDIF
+            ENDIF
          ELSE
 
-            !IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
-            !   WRITE (iw, *) "Attempting an inner move"
-            !   WRITE (iw, *)
-            !ENDIF
+            IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
+               WRITE (iw, *) "Attempting an inner move"
+               WRITE (iw, *)
+            ENDIF
 
             DO imove = 1, nmoves
 
@@ -638,11 +659,6 @@ CONTAINS
                IF (rand .LT. pmtraion) THEN
                   ! change molecular conformation
                   ! first, pick a box to do it for
-                  IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
-                     WRITE (iw, *) "Attempting an atom translation move"
-                     WRITE (iw, *)
-                  ENDIF
-
                   IF (ionode) rand = rng_stream%next()
                   CALL mp_bcast(rand, source, group)
                   IF (nboxes .EQ. 2) THEN
@@ -714,11 +730,6 @@ CONTAINS
                ELSEIF (rand .LT. pmtrans) THEN
                   ! translate a whole molecule in the system
                   ! pick a molecule type
-                  IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
-                     WRITE (iw, *) "Attempting a molecular translation move"
-                     WRITE (iw, *)
-                  ENDIF
-
                   IF (ionode) rand = rng_stream%next()
                   CALL mp_bcast(rand, source, group)
                   molecule_type = 0
@@ -751,11 +762,6 @@ CONTAINS
                ELSEIF (rand .LT. pmcltrans) THEN
                   ! translate a whole cluster in the system
                   ! first, pick a box to do it for
-                  IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
-                     WRITE (iw, *) "Attempting a cluster translation move"
-                     WRITE (iw, *)
-                  ENDIF
-
                   IF (ionode) rand = rng_stream%next()
                   CALL mp_bcast(rand, source, group)
 
