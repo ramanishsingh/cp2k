@@ -435,6 +435,7 @@ CONTAINS
          nstep = nstep*nchain_total
          iuptrans = iuptrans*nchain_total
          iupvolume = iupvolume*nchain_total
+         iprint = iprint*nchain_total
       ENDIF
 
       DO nnstep = nstart + 1, nstart + nstep
