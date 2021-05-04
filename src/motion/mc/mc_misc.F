@@ -224,6 +224,11 @@ CONTAINS
          moves => all_moves(itype)%moves
 
 ! AVBMC moves
+         IF (moves%empty_avbmc .GT. 0) THEN
+            WRITE (iw, '(A,I10)') 'AVBMC empty attempts: ', moves%empty_avbmc
+            WRITE (iw, '(A,A)') '-----------------------------------------------', &
+               '--------------------------------'
+         ENDIF
          string2 = "Attempted       Accepted       Percent"
          string1 = "AVBMC moves from in to in"
          CALL final_move_write(moves%avbmc_inin, string1, string2, iw)

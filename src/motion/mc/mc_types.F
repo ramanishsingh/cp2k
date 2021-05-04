@@ -81,6 +81,7 @@ MODULE mc_types
 ! contains all the parameters needed for running Monte Carlo simulations
       PRIVATE
       INTEGER, DIMENSION(:), POINTER :: avbmc_atom
+      INTEGER :: avbmc_method
       INTEGER :: nstep
       INTEGER :: iupvolume
       INTEGER :: iuptrans
@@ -116,7 +117,7 @@ MODULE mc_types
       CHARACTER(LEN=200) :: fft_lib
       CHARACTER(LEN=50) :: PROGRAM
       REAL(dp), DIMENSION(:), POINTER :: pmtraion_mol, pmtrans_mol, pmrot_mol, pmswap_mol, &
-                                         pbias, pmavbmc_mol
+                                         pbias, pbias2, pmtarget_mol, pmavbmc_mol
       REAL(dp) :: discrete_step
       REAL(dp) :: rmvolume, rmcltrans
       REAL(dp), DIMENSION(:), POINTER :: rmbond, rmangle, rmdihedral, rmrot, rmtrans
@@ -124,6 +125,7 @@ MODULE mc_types
       REAL(dp) :: temperature
       REAL(dp) :: pressure
       REAL(dp) :: rclus
+      REAL(dp) :: rmin
       REAL(dp) :: pmavbmc
       REAL(dp) :: pmswap
       REAL(dp) :: pmvolume, pmvol_box, pmclus_box
@@ -383,11 +385,11 @@ CONTAINS
    SUBROUTINE get_mc_par(mc_par, nstep, nvirial, iuptrans, iupcltrans, iupvolume, &
                          nmoves, nswapmoves, rm, cl, diff, nstart, &
                          source, group, lbias, ionode, lrestart, lstop, rmvolume, rmcltrans, rmbond, rmangle, &
-                         rmrot, rmtrans, temperature, pressure, rclus, BETA, pmswap, pmvolume, pmtraion, pmtrans, &
+                         rmrot, rmtrans, temperature, pressure, rmin, rclus, BETA, pmswap, pmvolume, pmtraion, pmtrans, &
                          pmcltrans, ensemble, PROGRAM, restart_file_name, molecules_file, moves_file, coords_file, &
                          energy_file, displacement_file, cell_file, dat_file, data_file, box2_file, &
                          fft_lib, iprint, rcut, ldiscrete, discrete_step, &
-                         pmavbmc, pbias, avbmc_atom, avbmc_rmin, avbmc_rmax, rmdihedral, &
+                         pmavbmc, avbmc_method, pbias, pbias2, pmtarget_mol, avbmc_atom, avbmc_rmin, avbmc_rmax, rmdihedral, &
                          input_file, mc_molecule_info, pmswap_mol, pmavbmc_mol, pmtrans_mol, pmrot_mol, &
                          pmtraion_mol, mc_input_file, mc_bias_file, pmvol_box, pmclus_box, virial_temps, &
                          exp_min_val, exp_max_val, min_val, max_val, eta, pmhmc, pmhmc_box, lhmc, rand2skip)
@@ -405,7 +407,7 @@ CONTAINS
       LOGICAL, INTENT(OUT), OPTIONAL                     :: lbias, ionode, lrestart, lstop
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: rmvolume, rmcltrans
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: rmbond, rmangle, rmrot, rmtrans
-      REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: temperature, pressure, rclus, BETA, &
+      REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: temperature, pressure, rmin, rclus, BETA, &
                                                             pmswap, pmvolume, pmtraion, pmtrans, &
                                                             pmcltrans
       CHARACTER(LEN=*), INTENT(OUT), OPTIONAL :: ensemble, PROGRAM, restart_file_name, &
@@ -415,7 +417,8 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: rcut
       LOGICAL, INTENT(OUT), OPTIONAL                     :: ldiscrete
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: discrete_step, pmavbmc
-      REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: pbias
+      INTEGER, INTENT(OUT), OPTIONAL                     :: avbmc_method
+      REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: pbias, pbias2, pmtarget_mol
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: avbmc_atom
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: avbmc_rmin, avbmc_rmax, rmdihedral
       TYPE(section_vals_type), OPTIONAL, POINTER         :: input_file
@@ -447,6 +450,7 @@ CONTAINS
       IF (PRESENT(source)) source = mc_par%source
       IF (PRESENT(group)) group = mc_par%group
       IF (PRESENT(iprint)) iprint = mc_par%iprint
+      IF (PRESENT(avbmc_method)) avbmc_method = mc_par%avbmc_method
 
       IF (PRESENT(lbias)) lbias = mc_par%lbias
       IF (PRESENT(ionode)) ionode = mc_par%ionode
@@ -464,6 +468,7 @@ CONTAINS
       IF (PRESENT(rmcltrans)) rmcltrans = mc_par%rmcltrans
       IF (PRESENT(temperature)) temperature = mc_par%temperature
       IF (PRESENT(pressure)) pressure = mc_par%pressure
+      IF (PRESENT(rmin)) rmin = mc_par%rmin
       IF (PRESENT(rclus)) rclus = mc_par%rclus
       IF (PRESENT(BETA)) BETA = mc_par%BETA
       IF (PRESENT(exp_max_val)) exp_max_val = mc_par%exp_max_val
@@ -486,6 +491,8 @@ CONTAINS
       IF (PRESENT(pmtraion_mol)) pmtraion_mol => mc_par%pmtraion_mol
       IF (PRESENT(pmavbmc_mol)) pmavbmc_mol => mc_par%pmavbmc_mol
       IF (PRESENT(pbias)) pbias => mc_par%pbias
+      if (PRESENT(pbias2)) pbias2 => mc_par%pbias2
+      if (PRESENT(pmtarget_mol)) pmtarget_mol => mc_par%pmtarget_mol
 
       IF (PRESENT(rmbond)) rmbond => mc_par%rmbond
       IF (PRESENT(rmangle)) rmangle => mc_par%rmangle
@@ -643,11 +650,12 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE set_mc_par(mc_par, rm, cl, &
                          diff, nstart, rmvolume, rmcltrans, rmbond, rmangle, rmdihedral, rmrot, rmtrans, PROGRAM, &
-                         nmoves, nswapmoves, lstop, temperature, pressure, rclus, iuptrans, iupcltrans, iupvolume, &
+                         nmoves, nswapmoves, lstop, temperature, pressure, rmin, rclus, iuptrans, iupcltrans, iupvolume, &
                          pmswap, pmvolume, pmtraion, pmtrans, pmcltrans, BETA, rcut, iprint, lbias, nstep, &
                          lrestart, ldiscrete, discrete_step, pmavbmc, mc_molecule_info, &
                          pmavbmc_mol, pmtrans_mol, pmrot_mol, pmtraion_mol, pmswap_mol, &
-                         avbmc_rmin, avbmc_rmax, avbmc_atom, pbias, ensemble, pmvol_box, pmclus_box, eta, &
+                         avbmc_method, avbmc_rmin, avbmc_rmax, avbmc_atom, pbias, pbias2, pmtarget_mol, &
+                         ensemble, pmvol_box, pmclus_box, eta, &
                          mc_input_file, mc_bias_file, exp_max_val, exp_min_val, min_val, max_val, &
                          pmhmc, pmhmc_box, lhmc, ionode, source, group, rand2skip)
 
@@ -665,7 +673,7 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN), OPTIONAL             :: PROGRAM
       INTEGER, INTENT(IN), OPTIONAL                      :: nmoves, nswapmoves
       LOGICAL, INTENT(IN), OPTIONAL                      :: lstop
-      REAL(KIND=dp), INTENT(IN), OPTIONAL                :: temperature, pressure, rclus
+      REAL(KIND=dp), INTENT(IN), OPTIONAL                :: temperature, pressure, rmin, rclus
       INTEGER, INTENT(IN), OPTIONAL                      :: iuptrans, iupcltrans, iupvolume
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: pmswap, pmvolume, pmtraion, pmtrans, &
                                                             pmcltrans, BETA, rcut
@@ -678,8 +686,9 @@ CONTAINS
       REAL(dp), DIMENSION(:), OPTIONAL, POINTER          :: pmavbmc_mol, pmtrans_mol, pmrot_mol, &
                                                             pmtraion_mol, pmswap_mol, avbmc_rmin, &
                                                             avbmc_rmax
+      INTEGER, INTENT(IN), OPTIONAL                      :: avbmc_method
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: avbmc_atom
-      REAL(dp), DIMENSION(:), OPTIONAL, POINTER          :: pbias
+      REAL(dp), DIMENSION(:), OPTIONAL, POINTER          :: pbias, pbias2, pmtarget_mol
       CHARACTER(LEN=*), INTENT(IN), OPTIONAL             :: ensemble
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: pmvol_box, pmclus_box
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: eta
@@ -705,6 +714,7 @@ CONTAINS
       IF (PRESENT(iuptrans)) mc_par%iuptrans = iuptrans
       IF (PRESENT(iupcltrans)) mc_par%iupcltrans = iupcltrans
       IF (PRESENT(iupvolume)) mc_par%iupvolume = iupvolume
+      IF (PRESENT(avbmc_method)) mc_par%avbmc_method = avbmc_method
 
       IF (PRESENT(ldiscrete)) mc_par%ldiscrete = ldiscrete
       IF (PRESENT(lstop)) mc_par%lstop = lstop
@@ -719,6 +729,7 @@ CONTAINS
       IF (PRESENT(temperature)) mc_par%temperature = temperature
       IF (PRESENT(rcut)) mc_par%rcut = rcut
       IF (PRESENT(pressure)) mc_par%pressure = pressure
+      IF (PRESENT(rmin)) mc_par%rmin = rmin
       IF (PRESENT(rclus)) mc_par%rclus = rclus
       IF (PRESENT(pmvolume)) mc_par%pmvolume = pmvolume
       IF (PRESENT(lhmc)) mc_par%lhmc = lhmc
@@ -818,6 +829,16 @@ CONTAINS
             mc_par%pbias(iparm) = pbias(iparm)
          ENDDO
       ENDIF
+      IF (PRESENT(pbias2)) THEN
+         DO iparm = 1, SIZE(pbias2)
+            mc_par%pbias2(iparm) = pbias2(iparm)
+         ENDDO
+      ENDIF
+      IF (PRESENT(pmtarget_mol)) THEN
+         DO iparm = 1, SIZE(pmtarget_mol)
+            mc_par%pmtarget_mol(iparm) = pmtarget_mol(iparm)
+         ENDDO
+      ENDIF
 
       IF (PRESENT(PROGRAM)) mc_par%program = PROGRAM
       IF (PRESENT(ensemble)) mc_par%ensemble = ensemble
@@ -862,6 +883,8 @@ CONTAINS
       ALLOCATE (mc_par%avbmc_rmax(1:nmol_types))
       ALLOCATE (mc_par%pmavbmc_mol(1:nmol_types))
       ALLOCATE (mc_par%pbias(1:nmol_types))
+      ALLOCATE (mc_par%pbias2(1:nmol_types))
+      ALLOCATE (mc_par%pmtarget_mol(1:nmol_types))
 
       ALLOCATE (mc_par%mc_input_file)
       ALLOCATE (mc_par%mc_bias_file)
@@ -898,6 +921,8 @@ CONTAINS
       DEALLOCATE (mc_par%avbmc_rmax)
       DEALLOCATE (mc_par%pmavbmc_mol)
       DEALLOCATE (mc_par%pbias)
+      DEALLOCATE (mc_par%pbias2)
+      DEALLOCATE (mc_par%pmtarget_mol)
       IF (mc_par%ensemble == "VIRIAL") THEN
          DEALLOCATE (mc_par%virial_temps)
       END IF
@@ -1307,6 +1332,11 @@ CONTAINS
       CALL section_vals_val_get(mc_section, "IPRINT", i_val=mc_par%iprint)
 ! now an integer array
       CALL section_vals_val_get(mc_section, "AVBMC%AVBMC_ATOM", i_vals=temp_i_array)
+      
+      CALL section_vals_val_get(mc_section, "AVBMC%AVBMC_METHOD", i_val=mc_par%avbmc_method)   
+      IF(mc_par%avbmc_method < 1 .OR. mc_par%avbmc_method > 3) THEN
+         CPABORT('AVBMC_METHOD must be 1, 2, or 3.')
+      ENDIF
 
       IF (mc_par%pmhmc - mc_par%pmswap >= 1.0_dp .AND. mc_par%pmhmc == 1.0_dp) THEN
          mc_par%lhmc = .TRUE.
@@ -1327,6 +1357,7 @@ CONTAINS
       CALL section_vals_val_get(mc_section, "PRESSURE", r_val=mc_par%pressure)
       CALL section_vals_val_get(mc_section, "TEMPERATURE", r_val=mc_par%temperature)
       CALL section_vals_val_get(mc_section, "RCLUS", r_val=mc_par%rclus)
+      CALL section_vals_val_get(mc_section, "RMIN", r_val=mc_par%rmin)
       CALL section_vals_val_get(mc_section, "MOVE_PROBABILITIES%BOX_PROBABILITIES%PMCLUS_BOX", &
                                 r_val=mc_par%pmclus_box)
       CALL section_vals_val_get(mc_section, "MOVE_PROBABILITIES%BOX_PROBABILITIES%PMHMC_BOX", &
@@ -1388,6 +1419,24 @@ CONTAINS
       ENDIF
       DO imol = 1, SIZE(temp_r_array)
          mc_par%pbias(imol) = temp_r_array(imol)
+      ENDDO
+      CALL section_vals_val_get(mc_section, "AVBMC%PBIAS2", r_vals=temp_r_array)
+      IF (.NOT. mc_par%lhmc) THEN
+         IF (SIZE(temp_r_array) .NE. nmol_types) THEN
+            CPABORT('PBIAS2 must have as many values as there are molecule types.')
+         ENDIF
+      ENDIF
+      DO imol = 1, SIZE(temp_r_array)
+         mc_par%pbias2(imol) = temp_r_array(imol)
+      ENDDO
+      CALL section_vals_val_get(mc_section, "AVBMC%PMTARGET_MOL", r_vals=temp_r_array)
+      IF (.NOT. mc_par%lhmc) THEN
+         IF (SIZE(temp_r_array) .NE. nmol_types) THEN
+            CPABORT('PMTARGET_MOL must have as many values as there are molecule types.')
+         ENDIF
+      ENDIF
+      DO imol = 1, SIZE(temp_r_array)
+         mc_par%pmtarget_mol(imol) = temp_r_array(imol)
       ENDDO
       CALL section_vals_val_get(mc_section, "MOVE_PROBABILITIES%MOL_PROBABILITIES%PMAVBMC_MOL", &
                                 r_vals=temp_r_array)
@@ -1547,6 +1596,8 @@ CONTAINS
             mc_par%pmcltrans
          WRITE (iw, '( A,T71,I10 )') ' MC| iupvolume ', &
             mc_par%iupvolume
+         WRITE (iw, '( A,T71,I10 )') ' MC| avmbc_method ', &
+         mc_par%avbmc_method
          WRITE (iw, '( A,T71,I10 )') ' MC| nvirial ', &
             mc_par%nvirial
          WRITE (iw, '( A,T71,I10 )') ' MC| iuptrans ', &
@@ -1566,6 +1617,10 @@ CONTAINS
                mc_par%pmavbmc_mol
             WRITE (iw, format_string) ' MC| pbias ', &
                mc_par%pbias
+            WRITE (iw, format_string) ' MC| pbias2 ', &
+               mc_par%pbias2
+            WRITE (iw, format_string) ' MC| pmtarget_mol ', &
+               mc_par%pmtarget_mol       
             WRITE (iw, format_string) ' MC| pmtraion_mol ', &
                mc_par%pmtraion_mol
             WRITE (iw, format_string) ' MC| pmtrans_mol ', &
@@ -1631,6 +1686,8 @@ CONTAINS
             mc_par%pressure
          WRITE (iw, '( A,T71,F10.5 )') ' MC| Rclus [ang] ', &
             mc_par%rclus
+         WRITE (iw, '( A,T71,F10.5 )') ' MC| Rmin  [ang] ', &
+            mc_par%rmin
          IF (mc_par%lrestart) THEN
             WRITE (iw, '(A,A)') ' MC| Initial data will be read from a', &
                ' restart file.'
@@ -1674,6 +1731,7 @@ CONTAINS
 ! convert from bar to a.u.
       mc_par%pressure = cp_unit_to_cp2k(mc_par%pressure, "bar")
       mc_par%rclus = cp_unit_to_cp2k(mc_par%rclus, "angstrom")
+      mc_par%rmin = cp_unit_to_cp2k(mc_par%rmin, "angstrom")
 ! convert from angstrom to a.u.
       DO itype = 1, mc_par%mc_molecule_info%nmol_types
 ! convert from Kelvin to a.u.
@@ -2046,6 +2104,9 @@ CONTAINS
       ENDIF
       IF (mc_par%pmrot_mol(nmol_types) .LT. 0.9999E0_dp) THEN
          CPABORT('The last value of PMROT_MOL needs to be 1.0')
+      ENDIF
+      IF (mc_par%pmtarget_mol(nmol_types) .LT. 0.9999E0_dp) THEN
+         CPABORT('The last value of PMTARGET_MOL needs to be 1.0')
       ENDIF
 
 ! check to make sure we have all the desired values for various

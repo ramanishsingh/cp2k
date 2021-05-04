@@ -164,7 +164,7 @@ CONTAINS
       CPASSERT(.NOT. ASSOCIATED(section))
       CALL section_create(section, __LOCATION__, name="mc", &
                           description="This section sets parameters to set up a MonteCarlo calculation.", &
-                          n_keywords=10, n_subsections=2, repeats=.FALSE.)
+                          n_keywords=11, n_subsections=2, repeats=.FALSE.)
 
       NULLIFY (keyword, subsection)
 
@@ -221,6 +221,13 @@ CONTAINS
                           description="The cluster cut off radius in angstroms.", &
                           usage="RCLUS {real}", &
                           default_r_val=1.0E0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="RMIN", &
+                          description="Distance cutoff for overlapping condition.", &
+                          usage="RMIN {real}", &
+                          default_r_val=1.2E0_dp)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -388,9 +395,16 @@ CONTAINS
                           description="Parameters for Aggregation Volume Bias Monte Carlo (AVBMC) "// &
                           "which explores cluster formation and destruction. "// &
                           "Chen and Siepmann, J. Phys. Chem. B 105, 11275-11282 (2001).", &
-                          n_keywords=5, n_subsections=0, repeats=.FALSE.)
+                          n_keywords=8, n_subsections=0, repeats=.FALSE.)
 
       NULLIFY (keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="AVBMC_METHOD", &
+                          description="The AVBMC method to be used. 1 or 2 or 3.", &
+                          usage="AVBMC_METHOD {integer}", &
+                          type_of_var=integer_t, default_i_val=1)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
 
       CALL keyword_create( &
          keyword, __LOCATION__, name="PBIAS", &
@@ -399,6 +413,24 @@ CONTAINS
          n_var=-1, type_of_var=real_t)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, name="PBIAS2", &
+         description="The probability of swapping from the inner region of the second target molecule for each &
+         &molecule type (used in AVBMC3).", &
+         usage="PBIAS2 {real} {real} ... ", &
+         n_var=-1, type_of_var=real_t)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+     
+      CALL keyword_create( &
+         keyword, __LOCATION__, name="PMTARGET_MOL", &
+         description="The probability of choosing a molecule type as the target molecule type for each molecular type.", &
+         usage="PMTARGET_MOL {real} {real} ... ", &
+         n_var=-1, type_of_var=real_t)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+      
 
       CALL keyword_create(keyword, __LOCATION__, name="AVBMC_ATOM", &
                           description="The target atom for an AVBMC swap move for each molecule type.", &

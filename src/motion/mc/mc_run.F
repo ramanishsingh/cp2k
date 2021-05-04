@@ -357,12 +357,12 @@ CONTAINS
 
       CHARACTER(20)                                      :: ensemble
       INTEGER                                            :: iprint, iupcltrans, iuptrans, iupvolume, &
-                                                            nmoves, nstep, nswapmoves
+                                                            nmoves, nstep, nswapmoves, avbmc_method
       INTEGER, DIMENSION(:), POINTER                     :: avbmc_atom
       LOGICAL                                            :: lbias, lrestart, lstop
       REAL(dp)                                           :: BETA, pmswap, pmtraion, pmtrans, &
                                                             pmvolume, pressure, rcut, temperature
-      REAL(dp), DIMENSION(:), POINTER                    :: avbmc_rmax, avbmc_rmin, pbias, &
+      REAL(dp), DIMENSION(:), POINTER                    :: avbmc_rmax, avbmc_rmin, pbias, pbias2, pmtarget_mol, &
                                                             pmavbmc_mol, pmrot_mol, pmswap_mol, &
                                                             pmtraion_mol, pmtrans_mol
 
@@ -374,8 +374,8 @@ CONTAINS
          WRITE (iw, '( A,A )') 'pmvolume,pmtraion,pmtrans,BETA,rcut,', &
             'lrestart'
          WRITE (iw, '( A,A )') 'pmtraion_mol,pmtrans_mol,pmrot_mol,pmswap_mol,', &
-            'avbmc_atom'
-         WRITE (iw, '( A,A )') 'avbmc_rmin,avmbc_rmax,pmavbmc_mol,pbias,pmswap'
+            'avbmc_method,avbmc_atom'
+         WRITE (iw, '( A,A )') 'avbmc_rmin,avmbc_rmax,pmavbmc_mol,pbias,pbias2,pmtarget_mol,pmswap'
       ENDIF
 
       CALL get_mc_par(mc_par(1)%mc_par, nstep=nstep, iupvolume=iupvolume, iupcltrans=iupcltrans, &
@@ -384,18 +384,18 @@ CONTAINS
                       pressure=pressure, pmswap=pmswap, pmvolume=pmvolume, &
                       pmtraion=pmtraion, pmtrans=pmtrans, BETA=BETA, rcut=rcut, &
                       lrestart=lrestart, pmtraion_mol=pmtraion_mol, pmtrans_mol=pmtrans_mol, &
-                      pmrot_mol=pmrot_mol, pmswap_mol=pmswap_mol, avbmc_atom=avbmc_atom, &
+                      pmrot_mol=pmrot_mol, pmswap_mol=pmswap_mol, avbmc_method=avbmc_method, avbmc_atom=avbmc_atom, &
                       avbmc_rmin=avbmc_rmin, avbmc_rmax=avbmc_rmax, pmavbmc_mol=pmavbmc_mol, &
-                      pbias=pbias, ensemble=ensemble)
+                      pbias=pbias, pbias2=pbias2, pmtarget_mol=pmtarget_mol, ensemble=ensemble)
       CALL set_mc_par(mc_par(2)%mc_par, nstep=nstep, iupvolume=iupvolume, iupcltrans=iupcltrans, &
                       iuptrans=iuptrans, nmoves=nmoves, nswapmoves=nswapmoves, &
                       iprint=iprint, lbias=lbias, lstop=lstop, temperature=temperature, &
                       pressure=pressure, pmswap=pmswap, pmvolume=pmvolume, &
                       pmtraion=pmtraion, pmtrans=pmtrans, BETA=BETA, rcut=rcut, &
                       lrestart=lrestart, pmtraion_mol=pmtraion_mol, pmtrans_mol=pmtrans_mol, &
-                      pmrot_mol=pmrot_mol, pmswap_mol=pmswap_mol, avbmc_atom=avbmc_atom, &
+                      pmrot_mol=pmrot_mol, pmswap_mol=pmswap_mol, avbmc_method=avbmc_method, avbmc_atom=avbmc_atom, &
                       avbmc_rmin=avbmc_rmin, avbmc_rmax=avbmc_rmax, pmavbmc_mol=pmavbmc_mol, &
-                      pbias=pbias, ensemble=ensemble)
+                      pbias=pbias, pbias2=pbias2, pmtarget_mol=pmtarget_mol, ensemble=ensemble)
 
    END SUBROUTINE equilize_mc_sim_parameters
 

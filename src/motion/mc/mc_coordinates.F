@@ -43,7 +43,8 @@ MODULE mc_coordinates
              create_discrete_array, &
              check_for_overlap, &
              rotate_molecule, &
-             cluster_search
+             cluster_search, &
+             create_inout_list
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'mc_coordinates'
 
@@ -64,13 +65,14 @@ CONTAINS
 !>      Suitable for parallel use.
 !> \author MJM
 ! **************************************************************************************************
-   SUBROUTINE check_for_overlap(force_env, nchains, nunits, loverlap, mol_type, &
+   SUBROUTINE check_for_overlap(force_env, nchains, nunits, loverlap, mol_type, rmin, &
                                 cell_length, molecule_number)
 
       TYPE(force_env_type), POINTER                      :: force_env
       INTEGER, DIMENSION(:), INTENT(IN)                  :: nchains, nunits
       LOGICAL, INTENT(OUT)                               :: loverlap
       INTEGER, DIMENSION(:), INTENT(IN)                  :: mol_type
+      REAL(KIND=dp),INTENT(IN)                           :: rmin
       REAL(KIND=dp), DIMENSION(1:3), INTENT(IN), &
          OPTIONAL                                        :: cell_length
       INTEGER, INTENT(IN), OPTIONAL                      :: molecule_number
@@ -81,7 +83,7 @@ CONTAINS
                                                             junit, nend, nstart, nunit, nunits_i, &
                                                             nunits_j
       LOGICAL                                            :: lall
-      REAL(KIND=dp)                                      :: dist, rmin
+      REAL(KIND=dp)                                      :: distsq, rminsq
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: r
       REAL(KIND=dp), DIMENSION(1:3)                      :: abc, box_length, RIJ
       TYPE(cell_type), POINTER                           :: cell
@@ -96,8 +98,7 @@ CONTAINS
 
 ! initialize some stuff
       loverlap = .FALSE.
-!     rmin = 3.57106767_dp ! 1 angstrom squared
-      rmin = 5.14232722_dp ! 1.2 angstrom squared
+      rminsq = rmin*rmin
 
 ! get the particle coordinates and the cell length
       CALL force_env_get(force_env, cell=cell, subsys=oldsys)
@@ -154,9 +155,9 @@ CONTAINS
                            box_length(3)*ANINT( &
                            (r(3, iunit, imol) - r(3, junit, jmol))/box_length(3))
 
-                  dist = RIJ(1)**2 + RIJ(2)**2 + RIJ(3)**2
+                  distsq = RIJ(1)**2 + RIJ(2)**2 + RIJ(3)**2
 
-                  IF (dist < rmin) THEN
+                  IF (distsq < rminsq) THEN
                      loverlap = .TRUE.
                      DEALLOCATE (r)
 
@@ -324,14 +325,14 @@ CONTAINS
 !>      Suitable for parallel.
 !> \author MJM
 ! **************************************************************************************************
-   SUBROUTINE generate_cbmc_swap_config(force_env, BETA, max_val, min_val, exp_max_val, &
+   SUBROUTINE generate_cbmc_swap_config(force_env, rmin_overlap, BETA, max_val, min_val, exp_max_val, &
                                         exp_min_val, nswapmoves, rosenbluth_weight, start_atom, natoms_tot, nunits, nunits_mol, &
                                         mass, loverlap, choosen_energy, old_energy, ionode, lremove, mol_type, nchains, source, &
                                         group, rng_stream, avbmc_atom, rmin, rmax, move_type, target_atom)
 
       TYPE(force_env_type), POINTER                      :: force_env
       REAL(KIND=dp), INTENT(IN)                          :: BETA, max_val, min_val, exp_max_val, &
-                                                            exp_min_val
+                                                            exp_min_val, rmin_overlap
       INTEGER, INTENT(IN)                                :: nswapmoves
       REAL(KIND=dp), INTENT(OUT)                         :: rosenbluth_weight
       INTEGER, INTENT(IN)                                :: start_atom, natoms_tot
@@ -426,10 +427,9 @@ CONTAINS
       ENDDO
       IF (molecule_number == 0) CALL cp_abort(__LOCATION__, &
                                               'CBMC swap move cannot find which molecule number it needs')
-
       IF (lremove) THEN
          CALL check_for_overlap(force_env, nchains, nunits, loverlap_array(1), &
-                                mol_type)
+                                mol_type, rmin_overlap)
          CALL mp_bcast(loverlap_array(1), source, group)
 
          IF (loverlap_array(1)) THEN
@@ -482,8 +482,14 @@ CONTAINS
             ENDDO
 
 ! rotate the molecule...this routine is only made for serial use
-            CALL rotate_molecule(r(:, start_atom:end_atom, imove), mass(:), &
-                                 nunits_mol, rng_stream)
+            IF (PRESENT(avbmc_atom)) THEN
+               CALL rotate_molecule(r(:, start_atom:end_atom, imove), mass(:), &
+                                    nunits_mol, rng_stream, center_atom=avbmc_atom)
+
+            ELSE
+               CALL rotate_molecule(r(:, start_atom:end_atom, imove), mass(:), &
+                                    nunits_mol, rng_stream)                    
+            ENDIF
 
             IF (imove == 1 .AND. lremove) THEN
                DO iatom = 1, natoms_tot
@@ -501,7 +507,7 @@ CONTAINS
          ENDDO
 
          CALL check_for_overlap(force_env, nchains, nunits, loverlap_array(imove), &
-                                mol_type, molecule_number=molecule_number)
+                                mol_type, rmin_overlap, molecule_number=molecule_number)
          IF (loverlap_array(imove)) THEN
             boltz_weights(imove) = 0.0_dp
             CYCLE
@@ -623,80 +629,127 @@ CONTAINS
 !>    Use only in serial.
 !> \author MJM
 ! **************************************************************************************************
-   SUBROUTINE rotate_molecule(r, mass, natoms, rng_stream)
+   SUBROUTINE rotate_molecule(r, mass, natoms, rng_stream, center_atom)
 
       INTEGER, INTENT(IN)                                :: natoms
       REAL(KIND=dp), DIMENSION(1:natoms), INTENT(IN)     :: mass
       REAL(KIND=dp), DIMENSION(1:3, 1:natoms), &
          INTENT(INOUT)                                   :: r
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
+      INTEGER, INTENT(IN), OPTIONAL                      :: center_atom
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'rotate_molecule'
 
       INTEGER                                            :: handle, iunit
-      REAL(KIND=dp)                                      :: cosdg, dgamma, rand, rx, rxnew, ry, &
-                                                            rynew, rz, rznew, sindg
+      REAL(KIND=dp)                                      :: rx, rxnew, ry, &
+                                                            rynew, rz, rznew
       REAL(KIND=dp), DIMENSION(1:3)                      :: center_of_mass
+      REAL(KIND=dp), DIMENSION(3,3)                      :: mat
 
 ! begin the timing of the subroutine
 
       CALL timeset(routineN, handle)
 
+! generate rotation matrix
+      CALL rotmat(mat, rng_stream)
+
+      IF (PRESENT(center_atom)) THEN
+
+         DO iunit = 1, natoms
+            IF (iunit .EQ. center_atom) CYCLE
+            rx = r(1, iunit) - r(1, center_atom)
+            ry = r(2, iunit) - r(2, center_atom)
+            rz = r(3, iunit) - r(3, center_atom)
+            rxnew = mat(1, 1) * rx + mat(1, 2) * ry + mat(1, 3) * rz
+            rynew = mat(2, 1) * rx + mat(2, 2) * ry + mat(2, 3) * rz
+            rznew = mat(3, 1) * rx + mat(3, 2) * ry + mat(3, 3) * rz
+            r(1, iunit) = r(1, center_atom) + rxnew
+            r(2, iunit) = r(2, center_atom) + rynew
+            r(3, iunit) = r(3, center_atom) + rznew
+         ENDDO
+
+      ELSE        
+
 ! find the center of mass of the molecule
-      CALL get_center_of_mass(r(:, :), natoms, center_of_mass(:), mass(:))
+         CALL get_center_of_mass(r(:, :), natoms, center_of_mass(:), mass(:))
 
-! call a random number to figure out how far we're moving
-      rand = rng_stream%next()
-      dgamma = pi*(rand - 0.5E0_dp)*2.0E0_dp
+         DO iunit = 1, natoms
+            rx = r(1, iunit) - center_of_mass(1)
+            ry = r(2, iunit) - center_of_mass(2)
+            rz = r(3, iunit) - center_of_mass(3)
+            rxnew = mat(1, 1) * rx + mat(1, 2) * ry + mat(1, 3) * rz
+            rynew = mat(2, 1) * rx + mat(2, 2) * ry + mat(2, 3) * rz
+            rznew = mat(3, 1) * rx + mat(3, 2) * ry + mat(3, 3) * rz
+            r(1, iunit) = rxnew + center_of_mass(1)
+            r(2, iunit) = rynew + center_of_mass(2)
+            r(3, iunit) = rznew + center_of_mass(3)
+         ENDDO
 
-! *** set up the rotation matrix ***
-
-      cosdg = COS(dgamma)
-      sindg = SIN(dgamma)
-
-! ***    ROTATE UNITS OF I AROUND X-AXIS ***
-
-      DO iunit = 1, natoms
-         ry = r(2, iunit) - center_of_mass(2)
-         rz = r(3, iunit) - center_of_mass(3)
-         rynew = cosdg*ry + sindg*rz
-         rznew = cosdg*rz - sindg*ry
-
-         r(2, iunit) = rynew + center_of_mass(2)
-         r(3, iunit) = rznew + center_of_mass(3)
-
-      ENDDO
-
-! ***    ROTATE UNITS OF I AROUND y-AXIS ***
-
-      DO iunit = 1, natoms
-         rx = r(1, iunit) - center_of_mass(1)
-         rz = r(3, iunit) - center_of_mass(3)
-         rxnew = cosdg*rx + sindg*rz
-         rznew = cosdg*rz - sindg*rx
-
-         r(1, iunit) = rxnew + center_of_mass(1)
-         r(3, iunit) = rznew + center_of_mass(3)
-
-      ENDDO
-
-! ***    ROTATE UNITS OF I AROUND z-AXIS ***
-
-      DO iunit = 1, natoms
-         rx = r(1, iunit) - center_of_mass(1)
-         ry = r(2, iunit) - center_of_mass(2)
-         rxnew = cosdg*rx + sindg*ry
-         rynew = cosdg*ry - sindg*rx
-
-         r(1, iunit) = rxnew + center_of_mass(1)
-         r(2, iunit) = rynew + center_of_mass(2)
-
-      ENDDO
+      ENDIF
 
 ! end the timing
       CALL timestop(handle)
 
    END SUBROUTINE rotate_molecule
+
+!> \brief Generate a random rotational matrix
+!> Uses a four-dimentional unit vector to create the matrix.
+!> \see F. J. Vesely, J. Comp. Phys, 47, 291-296 (1982).
+!>    Use only in serial.
+   SUBROUTINE rotmat(mat, rng_stream)
+
+      REAL(KIND=dp), DIMENSION(3,3), INTENT(OUT)         :: mat
+      TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
+
+      REAL(KIND=dp)                                      :: l, u, v, r, s, s1, s2
+      REAL(KIND=dp)                                      :: l2, u2, v2, r2, lu, lv, lr, uv, ur, vr
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'rotmat'
+      INTEGER                                            :: handle
+
+      CALL timeset(routineN, handle)
+
+      ! Create a 4D unit vector (l, u, v, r)
+      DO
+         l = 2.0E0_dp * rng_stream%next() - 1.0E0_dp
+         u = 2.0E0_dp * rng_stream%next() - 1.0E0_dp
+         s1 = l * l + u * u
+         IF (s1 .LT. 1.0E0_dp) EXIT
+      ENDDO
+
+      DO
+         v = 2.0E0_dp * rng_stream%next() - 1.0E0_dp
+         r = 2.0E0_dp * rng_stream%next() - 1.0E0_dp
+         s2 = v * v + r * r
+         IF (s2 .lt. 1.0E0_dp) EXIT
+      ENDDO
+
+      s = sqrt((1.0E0_dp - s1) / s2)
+      v = v * s
+      r = r * s
+      ! Constuct the rotation matrix
+      l2 = l * l
+      u2 = u * u
+      v2 = v * v
+      r2 = r * r
+      lu = l * u
+      lv = l * v
+      lr = l * r
+      uv = u * v
+      ur = u * r
+      vr = v * r
+      mat(1, 1) = l2 - u2 - v2 + r2
+      mat(1, 2) = 2.0E0_dp * (lu - vr)
+      mat(1, 3) = 2.0E0_dp * (lv + ur)
+      mat(2, 1) = 2.0E0_dp * (lu + vr)
+      mat(2, 2) = u2 - v2 - l2 + r2
+      mat(2, 3) = 2.0E0_dp * (uv - lr)
+      mat(3, 1) = 2.0E0_dp * (lv - ur)
+      mat(3, 2) = 2.0E0_dp * (uv + lr)
+      mat(3, 3) = v2 - l2 - u2 + r2
+
+      CALL timestop(handle)
+
+   END SUBROUTINE rotmat
 
 ! **************************************************************************************************
 !> \brief selects a molecule at random to perform a MC move on...you can specify
@@ -938,7 +991,8 @@ CONTAINS
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
       INTEGER                                            :: i
-      REAL(dp)                                           :: dist, eta_1, eta_2, eta_sq, rand
+      REAL(dp)                                           :: distsq, eta_1, eta_2, eta_sq, rand, &
+                                                            rminsq, rmaxsq
       REAL(dp), DIMENSION(1:3)                           :: RIJ
 
       r_insert(1:3) = 0.0_dp
@@ -965,6 +1019,9 @@ CONTAINS
          r_insert(1:3) = r_target(1:3) + r_insert(1:3)
       ELSE
 
+         rminsq = rmin * rmin
+         rmaxsq = rmax * rmax
+
 ! find a new insertion point somewhere in the box
          DO
             DO i = 1, 3
@@ -980,12 +1037,11 @@ CONTAINS
             RIJ(3) = r_insert(3) - r_target(3) - abc(3)* &
                      ANINT((r_insert(3) - r_target(3))/abc(3))
 
-            dist = RIJ(1)**2 + RIJ(2)**2 + RIJ(3)**2
+            distsq = RIJ(1)**2 + RIJ(2)**2 + RIJ(3)**2
 
-            IF (dist .LT. rmin**2 .OR. dist .GT. rmax**2) THEN
+            IF (distsq .LT. rminsq .OR. distsq .GT. rmaxsq) THEN
                EXIT
             ENDIF
-
          ENDDO
       ENDIF
 
@@ -1144,6 +1200,97 @@ CONTAINS
       CALL timestop(handle)
 
    END SUBROUTINE cluster_search
+
+!> \brief generates a list atoms in the in and out region of the target atom, where the "in" volume
+!> is a shell with inner radius rmin and outer radius rmax
+!> \param abc the lengths of the sides of the simulation box
+!> \param molecule_type the type of molecule the atoms should belong to
+!> \param avbmc_atom avbmc_atom of molecule_type
+!> \param target_atom
+!> \param box_number the box the chosen molecule is in
+! **************************************************************************************************
+   SUBROUTINE create_inout_list(list_in, nin, list_out, nout, &
+                               mc_molecule_info, particles, abc, &
+                               molecule_type, avbmc_atom, &
+                               target_atom, rmin, rmax, box_number)
+
+      TYPE(mc_molecule_info_type), POINTER               :: mc_molecule_info
+      INTEGER, INTENT(OUT)                               :: nin, nout
+      INTEGER, INTENT(IN)                                :: molecule_type, avbmc_atom, &
+                                                            target_atom, box_number
+      REAL(KIND=dp), DIMENSION(1:3), INTENT(IN)          :: abc
+      REAL(KIND=dp), INTENT(IN)                          :: rmin, rmax
+      TYPE(particle_list_type), POINTER                  :: particles
+      INTEGER, DIMENSION(:), POINTER                     :: list_in, list_out
+
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_inout_list'
+
+      INTEGER                                            :: handle, imol_type, imolecule, jatom, &
+                                                            jbox, molecule_number, start_mol, start_atom
+      INTEGER, DIMENSION(:), POINTER                     :: mol_type, nunits
+      INTEGER, DIMENSION(:, :), POINTER                  :: nchains
+      REAL(KIND=dp)                                      :: rand, rijsq, rmaxsq, rminsq
+      REAL(KIND=dp), DIMENSION(1:3)                      :: RIJ
+
+! begin the timing of the subroutine
+
+      CALL timeset(routineN, handle)
+
+      NULLIFY (nunits, mol_type, nchains)
+      CALL get_mc_molecule_info(mc_molecule_info, nchains=nchains, nunits=nunits, &
+                                mol_type=mol_type)
+
+! initialize the outgoing variables
+      nin = 0
+      nout = 0
+
+! adjust to take into account molecules in previous boxes
+      start_mol = 1
+      DO jbox = 1, box_number - 1
+         start_mol = start_mol + SUM(nchains(:, jbox))
+      ENDDO
+
+! adjust to take into account molecules of other types in the box
+      DO imol_type = 1, molecule_type - 1
+         start_mol = start_mol + nchains(imol_type, box_number)
+      ENDDO
+
+! find the atom number offset
+      start_atom = 1
+      DO imolecule = 1, start_mol - 1
+         start_atom = start_atom + nunits(mol_type(start_mol + imolecule - 1))
+      ENDDO
+
+      rmaxsq = rmax * rmax
+      rminsq = rmin * rmin
+      DO molecule_number = 1, nchains(molecule_type, box_number)
+         ! find the avbmc atom number of this molecule
+         jatom  =  start_atom + avbmc_atom - 1
+         ! exclude the target atom itself
+         IF (jatom .EQ. target_atom) THEN
+             start_atom = start_atom + nunits(molecule_type)
+             CYCLE
+         ENDIF
+         RIJ(1) = particles%els(jatom)%r(1) - particles%els(target_atom)%r(1) - &
+                  abc(1)*ANINT((particles%els(jatom)%r(1) - particles%els(target_atom)%r(1))/abc(1))
+         RIJ(2) = particles%els(jatom)%r(2) - particles%els(target_atom)%r(2) - &
+                  abc(2)*ANINT((particles%els(jatom)%r(2) - particles%els(target_atom)%r(2))/abc(2))
+         RIJ(3) = particles%els(jatom)%r(3) - particles%els(target_atom)%r(3) - &
+                  abc(3)*ANINT((particles%els(jatom)%r(3) - particles%els(target_atom)%r(3))/abc(3))
+         rijsq = RIJ(1)**2 + RIJ(2)**2 + RIJ(3)**2
+         IF (rijsq .LE. rmaxsq .AND. rijsq .GE. rminsq) THEN
+            nin = nin + 1
+            list_in(nin) = start_atom
+         ELSE
+            nout = nout + 1
+            list_out(nout) = start_atom
+         ENDIF
+         start_atom = start_atom + nunits(molecule_type)
+      ENDDO
+
+      CALL timestop(handle)
+
+   END SUBROUTINE
 
 END MODULE mc_coordinates
 
