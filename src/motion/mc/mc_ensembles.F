@@ -836,7 +836,7 @@ CONTAINS
                   !     rotate a whole molecule in the system
                   ! pick a molecule type
                   IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
-                     WRITE (iw, *) "Attempting a molecular translation move"
+                     WRITE (iw, *) "Attempting a molecular rotation move"
                      WRITE (iw, *)
                   ENDIF
 
