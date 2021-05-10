@@ -1200,6 +1200,10 @@ CONTAINS
             IF (ltoo_small) THEN
                WRITE (iw, *) 'new_cell_lengths ', &
                   new_cell_length(1:3)*angstrom
+               WRITE (iw, *) 'old_cell_lengths ', &
+                  old_cell_length(1:3)*angstrom
+               WRITE (iw, *) 'volume disp ', &
+                  vol_dis*angstrom**3
                WRITE (iw, *) 'rcut ', rcut*angstrom
             ENDIF
          ENDIF
