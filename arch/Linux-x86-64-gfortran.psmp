@@ -1,79 +1,32 @@
-# Tested with: GFortran 8.3.0, MPICH 3.3, LAPACK 3.9.0, ScaLAPACK 2.0.2, FFTW 3.3,
-#              LIBINT 2.6.0, LIBXC 5.1.3, ELPA 2020.11.001, PLUMED 2.6.2, SPGLIB 1.16.0,
-#              LIBVORI 210412, LIBXSMM 1.16.1
-# Author: Matthias Krack (matthias.krack@psi.ch, PSI, April 2021)
-
 CC          = mpicc
 FC          = mpif90
 LD          = mpif90
 AR          = ar -r
 
-include       $(MPI_PATH)/plumed2/2.6.2/lib/plumed/src/lib/Plumed.inc.static
-
-ELPA_VER    = 2020.11.001
-ELPA_INC    = $(MPI_PATH)/elpa/$(ELPA_VER)/include/elpa_openmp-$(ELPA_VER)
-ELPA_LIB    = $(MPI_PATH)/elpa/$(ELPA_VER)/lib
-
-FFTW_INC    = $(GNU_PATH)/fftw/3.3/include
-FFTW_LIB    = $(GNU_PATH)/fftw/3.3/lib
-
-LIBINT_INC  = $(GNU_PATH)/libint/2.6.0-lmax-6/include
-LIBINT_LIB  = $(GNU_PATH)/libint/2.6.0-lmax-6/lib
-
-LIBVORI_LIB = $(GNU_PATH)/libvori/210412/lib
-
-LIBXC_INC   = $(GNU_PATH)/libxc/5.1.3/include
-LIBXC_LIB   = $(GNU_PATH)/libxc/5.1.3/lib
-
-LIBXSMM_INC = $(GNU_PATH)/libxsmm/1.16.1/include
-LIBXSMM_LIB = $(GNU_PATH)/libxsmm/1.16.1/lib
-
-SPGLIB_INC  = $(GNU_PATH)/spglib/1.16.0/include
-SPGLIB_LIB  = $(GNU_PATH)/spglib/1.16.0/lib
+FFTW_INC    = /panfs/roc/msisoft/fftw/gnu-ompi/3.3.8-double-gnu-8.2.0-ompi-4.0.0.CentOS7/include 
+FFTW_LIB    = /panfs/roc/msisoft/fftw/gnu-ompi/3.3.8-double-gnu-8.2.0-ompi-4.0.0.CentOS7/lib
+LIBPATH2    = /home/siepmann/chen4519/scalapack-2.1.0/BUILD/lib
+LIBPATH     = /home/siepmann/chen4519/lapack-3.9.1/BUILD/lib 
 
 CFLAGS      = -O2 -fopenmp -fopenmp-simd -ftree-vectorize -funroll-loops -g -march=native -mtune=native
 
-DFLAGS      = -D__ELPA
 DFLAGS     += -D__FFTW3
-DFLAGS     += -D__GSL
-DFLAGS     += -D__LIBINT
-DFLAGS     += -D__LIBVORI
-DFLAGS     += -D__LIBXC
-DFLAGS     += -D__LIBXSMM
 DFLAGS     += -D__MPI_VERSION=3
-DFLAGS     += -D__PLUMED2
-DFLAGS     += -D__SPGLIB
 DFLAGS     += -D__parallel
 DFLAGS     += -D__SCALAPACK
 
 FCFLAGS     = $(CFLAGS) $(DFLAGS)
 FCFLAGS    += -fbacktrace
-FCFLAGS    += -ffree-form
-FCFLAGS    += -ffree-line-length-none
-FCFLAGS    += -fno-omit-frame-pointer
 FCFLAGS    += -std=f2008
-FCFLAGS    += -I$(ELPA_INC)/elpa -I$(ELPA_INC)/modules
 FCFLAGS    += -I$(FFTW_INC)
-FCFLAGS    += -I$(LIBINT_INC)
-FCFLAGS    += -I$(LIBXC_INC)
-FCFLAGS    += -I$(LIBXSMM_INC)
 
-LDFLAGS     = $(FCFLAGS) -static-libgfortran
+LDFLAGS     = $(FCFLAGS)
 
-LIBS        = $(PLUMED_DEPENDENCIES) $(GSL_LIBRARY_DIR)/libgsl.a $(GSL_LIBRARY_DIR)/libgslcblas.a $(LIBPATH)/libz.a
-LIBS       += $(ELPA_LIB)/libelpa_openmp.a
-LIBS       += $(LIBVORI_LIB)/libvori.a
-LIBS       += $(LIBXC_LIB)/libxcf03.a
-LIBS       += $(LIBXC_LIB)/libxc.a
-LIBS       += $(LIBINT_LIB)/libint2.a
-LIBS       += $(SPGLIB_LIB)/libsymspg.a
-LIBS       += $(FFTW_LIB)/libfftw3.a
-LIBS       += $(FFTW_LIB)/libfftw3_threads.a
-LIBS       += $(LIBXSMM_LIB)/libxsmmf.a
-LIBS       += $(LIBXSMM_LIB)/libxsmm.a
-LIBS       += $(MPI_LIBRARY_PATH)/libscalapack.a
-LIBS       += $(LIBPATH)/liblapack.a
-LIBS       += $(LIBPATH)/libblas.a
+LIBS       += -L$(FFTW_LIB) -lfftw3
+LIBS       += -L$(FFTW_LIB) -lfftw3_threads
+LIBS       += -L$(LIBPATH2) -lscalapack
+LIBS       += -L$(LIBPATH) -llapack
+LIBS       += -L$(LIBPATH) -lblas
 LIBS       += -ldl
 LIBS       += -lpthread
 LIBS       += -lstdc++
