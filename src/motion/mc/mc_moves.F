@@ -1199,8 +1199,8 @@ CONTAINS
 
             IF (ltoo_small) THEN
                WRITE (iw, *) 'new_cell_lengths ', &
-                  new_cell_length(1:3)/angstrom
-               WRITE (iw, *) 'rcut ', rcut/angstrom
+                  new_cell_length(1:3)*angstrom
+               WRITE (iw, *) 'rcut ', rcut*angstrom
             ENDIF
          ENDIF
       ENDIF
