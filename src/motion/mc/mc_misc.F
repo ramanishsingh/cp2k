@@ -224,6 +224,11 @@ CONTAINS
          moves => all_moves(itype)%moves
 
 ! AVBMC moves
+         IF (moves%empty_avbmc .GT. 0) THEN
+            WRITE (iw, '(A,I10)') 'AVBMC empty attempts: ', moves%empty_avbmc
+            WRITE (iw, '(A,A)') '-----------------------------------------------', &
+               '--------------------------------'
+         ENDIF
          string2 = "Attempted       Accepted       Percent"
          string1 = "AVBMC moves from in to in"
          CALL final_move_write(moves%avbmc_inin, string1, string2, iw)
@@ -240,7 +245,7 @@ CONTAINS
              moves%dihedral%attempts .GT. 0) THEN
             WRITE (iw, '(A,T43,A)') "Conformational Moves", &
                "Attempted       Accepted       Percent"
-            WRITE (iw, '(T46,I6,9X,I6,7X,F7.3)') &
+            WRITE (iw, '(T38,I10,9X,I10,7X,F7.3)') &
                moves%bond%attempts + moves%angle%attempts + &
                moves%dihedral%attempts, &
                moves%bond%successes + moves%angle%successes + &
@@ -271,7 +276,7 @@ CONTAINS
                                   displacement=rmdihedral(itype), lbias=lbias, format_string=format_string, &
                                   string3=string3)
 
-            WRITE (iw, '(A,A,I5)') "Conformational Moves Rejected Because", &
+            WRITE (iw, '(A,A,I10)') "Conformational Moves Rejected Because", &
                "Box Was Empty: ", moves%empty_conf
             WRITE (iw, '(A,A)') '-----------------------------------------------', &
                '--------------------------------'
@@ -297,21 +302,21 @@ CONTAINS
          IF (moves%swap%attempts .GT. 0) THEN
             WRITE (iw, '(A,T43,A)') "Swap Moves into this box", &
                "Attempted       Empty          Percent"
-            WRITE (iw, '(T46,I6,9X,I6,7X,F7.3)') &
+            WRITE (iw, '(T38,I10,9X,I10,7X,F7.3)') &
                moves%swap%attempts, &
                moves%empty, &
                REAL(moves%empty, dp)/ &
                REAL(moves%swap%attempts, dp)*100.0E0_dp
             WRITE (iw, '(A,T43,A)') "                  Growths", &
                "Attempted       Successful     Percent"
-            WRITE (iw, '(T46,I6,9X,I6,7X,F7.3)') &
+            WRITE (iw, '(T38,I10,9X,I10,7X,F7.3)') &
                moves%swap%attempts, &
                moves%grown, &
                REAL(moves%grown, dp)/ &
                REAL(moves%swap%attempts, dp)*100.0E0_dp
             WRITE (iw, '(A,T43,A)') "                    Total", &
                "Attempted       Accepted       Percent"
-            WRITE (iw, '(T46,I6,9X,I6,7X,F7.3)') &
+            WRITE (iw, '(T38,I10,9X,I10,7X,F7.3)') &
                moves%swap%attempts, &
                moves%swap%successes, &
                REAL(moves%swap%successes, dp)/ &
@@ -406,7 +411,7 @@ CONTAINS
          IF (move_data%attempts .GT. 0) THEN
             WRITE (iw, '(A,T43,A)') TRIM(ADJUSTL(string1)), &
                TRIM(ADJUSTL(string2))
-            WRITE (iw, '(T46,I6,9X,I6,7X,F7.3)') &
+            WRITE (iw, '(T38,I10,9X,I10,7X,F7.3)') &
                move_data%attempts, &
                move_data%successes, &
                REAL(move_data%successes, dp)/ &
@@ -422,12 +427,12 @@ CONTAINS
          IF (move_data%attempts .GT. 0) THEN
             WRITE (iw, '(A,T43,A)') TRIM(ADJUSTL(string1)), &
                TRIM(ADJUSTL(string2))
-            WRITE (iw, '(T46,I6,9X,I6,7X,F7.3)') &
+            WRITE (iw, '(T38,I10,9X,I10,7X,F7.3)') &
                move_data%attempts, &
                move_data%successes, &
                REAL(move_data%successes, dp)/ &
                REAL(move_data%attempts, dp)*100.0E0_dp
-            IF (.NOT. lbias) WRITE (iw, '(A,T71,F10.5)') &
+            IF (.NOT. lbias) WRITE (iw, '(A,T61,F20.5)') &
                string3, displacement
             WRITE (iw, '(A,A)') '-----------------------------------------------', &
                '---------------------------------'
