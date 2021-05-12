@@ -2513,7 +2513,7 @@ CONTAINS
             prefactor = pbias(molecule_type_swap)*volume_out/((1.0_dp - pbias(molecule_type_swap))*volume_in)
          ENDIF
       ELSEIF (avbmc_method .EQ. 2 .OR. &
-              avbmc_method .EQ. 3 .AND. .NOT. linin2 .AND. .NOT. linin2) THEN
+              avbmc_method .EQ. 3 .AND. .NOT. linin1 .AND. .NOT. linin2) THEN
          ! out->in
          IF (move_type == 'in') THEN
             prefactor = (1.0_dp - pbias(molecule_type_swap)) / pbias(molecule_type_swap)
