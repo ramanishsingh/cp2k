@@ -158,7 +158,7 @@ CONTAINS
       INTEGER, DIMENSION(:, :), POINTER                  :: nchains
       LOGICAL                                            :: ionode, lbias, loverlap
       REAL(KIND=dp)                                      :: BETA, bias_energy_new, bias_energy_old, &
-                                                            dis_length, exp_max_val, exp_min_val, &
+                                                            dis_length, dis_angle, exp_max_val, exp_min_val, &
                                                             rand, value, w
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: r_new, r_old
       TYPE(cp_subsys_type), POINTER                      :: subsys
@@ -239,6 +239,10 @@ CONTAINS
       ENDDO
 
       IF (.NOT. ASSOCIATED(molecule_kind)) CPABORT('Cannot find the molecule type')
+
+      dis_length = 1.0E0_dp
+      dis_angle = 1.0E0_dp
+
 ! do the move
       IF (move_type == 'bond') THEN
 
@@ -278,8 +282,7 @@ CONTAINS
 
 ! do the move
          CALL change_bond_angle(r_old, r_new, mc_par, molecule_type, &
-                                molecule_kind, particles, rng_stream)
-         dis_length = 1.0E0_dp
+                                molecule_kind, dis_angle, particles, rng_stream)
       ELSE
 ! record the attempt
          moves%dihedral%attempts = moves%dihedral%attempts + 1
@@ -298,7 +301,6 @@ CONTAINS
 ! do the move
          CALL change_dihedral(r_old, r_new, mc_par, molecule_type, &
                               molecule_kind, particles, rng_stream)
-         dis_length = 1.0E0_dp
 
       ENDIF
 
@@ -340,7 +342,7 @@ CONTAINS
             ELSEIF (value .LT. exp_min_val) THEN
                w = 0.0_dp
             ELSE
-               w = EXP(value)*dis_length**2
+               w = EXP(value)*dis_length**2*dis_angle
             ENDIF
 
          ENDIF
@@ -1471,13 +1473,14 @@ CONTAINS
 !> \author MJM
 ! **************************************************************************************************
    SUBROUTINE change_bond_angle(r_old, r_new, mc_par, molecule_type, molecule_kind, &
-                                particles, rng_stream)
+                                dis_angle, particles, rng_stream)
 
       REAL(KIND=dp), DIMENSION(:, :), INTENT(IN)         :: r_old
       REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: r_new
       TYPE(mc_simpar_type), POINTER                      :: mc_par
       INTEGER, INTENT(IN)                                :: molecule_type
       TYPE(molecule_kind_type), POINTER                  :: molecule_kind
+      REAL(KIND=dp), INTENT(OUT)                         :: dis_angle
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
@@ -1491,7 +1494,7 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: nunits
       LOGICAL                                            :: ionode
       REAL(dp), DIMENSION(:), POINTER                    :: rmangle
-      REAL(KIND=dp) :: atom_mass, bis_length, dis_angle, dis_angle_a, dis_angle_c, mass_a, mass_c, &
+      REAL(KIND=dp) :: atom_mass, bis_length, dis_angle_a, dis_angle_c, mass_a, mass_c, &
          new_angle_a, new_angle_c, old_angle, old_length_a, old_length_c, rand, temp_length
       REAL(KIND=dp), DIMENSION(1:3)                      :: bisector, bond_a, bond_c, cross_prod, &
                                                             cross_prod_plane, temp
@@ -1698,6 +1701,9 @@ CONTAINS
          r_new(1:3, iatom) = r_new(1:3, iatom) + &
                              r_old(1:3, bend_list(bend_number)%b)
       ENDDO
+
+! correct the value of dis_angle for the acceptance rule
+      dis_angle = SIN(old_angle + dis_angle)/SIN(old_angle)
 
 ! deallocate some stuff
       DEALLOCATE (connection)
