@@ -122,7 +122,7 @@ CONTAINS
       WRITE (unit, *) temperature, nunits_tot
       WRITE (unit, *) ensemble
       WRITE (unit, *) nchains(:)
-      WRITE (unit, '(3(F10.6,3X))') abc(1:3)*angstrom ! in angstroms
+      WRITE (unit, '(3(F20.10,3X))') abc(1:3)*angstrom ! in angstroms
       WRITE (unit, *)
 
       ! can't do a simple particles%els%atomic_kind%element_symbol because
@@ -138,7 +138,7 @@ CONTAINS
             DO ichain = 1, nmolecule
                DO iunit = 1, natom
                   CALL get_atomic_kind(atom_list(iunit)%atomic_kind, name=name)
-                  WRITE (unit, '(1X,A,1X,3(F15.10,3X))') &
+                  WRITE (unit, '(1X,A,1X,3(F20.10,3X))') &
                      TRIM(ADJUSTL(name)), &
                      particles%els(iparticle)%r(1:3)*angstrom
                   iparticle = iparticle + 1
