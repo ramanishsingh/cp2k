@@ -78,6 +78,7 @@ CONTAINS
       ALLOCATE (moves%avbmc_inout)
       ALLOCATE (moves%avbmc_outin)
       ALLOCATE (moves%avbmc_outout)
+      ALLOCATE (moves%switch)
       ALLOCATE (moves%swap)
       ALLOCATE (moves%Quickstep)
 ! set all the counters equal to zero
@@ -136,6 +137,9 @@ CONTAINS
       moves%hmc%attempts = 0
       moves%hmc%successes = 0
       moves%hmc%qsuccesses = 0
+      moves%switch%attempts = 0
+      moves%switch%successes = 0
+      moves%switch%qsuccesses = 0
       moves%swap%attempts = 0
       moves%swap%successes = 0
       moves%swap%qsuccesses = 0
@@ -195,6 +199,7 @@ CONTAINS
       DEALLOCATE (moves%avbmc_inout)
       DEALLOCATE (moves%avbmc_outin)
       DEALLOCATE (moves%avbmc_outout)
+      DEALLOCATE (moves%switch)
       DEALLOCATE (moves%swap)
       DEALLOCATE (moves%Quickstep)
 
@@ -378,6 +383,8 @@ CONTAINS
          moves%cltrans%successes, moves%cltrans%attempts
       WRITE (unit, 1000) nnstep, ' rot       ', &
          moves%rot%successes, moves%rot%attempts
+      WRITE (unit, 1000) nnstep, ' switch      ', &
+         moves%switch%successes, moves%switch%attempts
       WRITE (unit, 1000) nnstep, ' swap      ', &
          moves%swap%successes, moves%swap%attempts
       WRITE (unit, 1001) nnstep, ' grown     ', &

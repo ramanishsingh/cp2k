@@ -60,6 +60,7 @@ MODULE mc_ensembles
                                               mc_moves_release,&
                                               write_move_stats
    USE mc_moves,                        ONLY: mc_avbmc_move,&
+                                              mc_switch_move,&
                                               mc_cluster_translation,&
                                               mc_conformation_change,&
                                               mc_hmc_move,&
@@ -138,7 +139,8 @@ CONTAINS
       INTEGER :: avbmc_method, atom_number, box_number, cell_unit, com_crd, com_ene, com_mol, end_mol, group, &
          handle, ibox, idum, imol_type, imolecule, imove, iparticle, iprint, itype, iunit, &
          iuptrans, iupvolume, iw, jbox, jdum, molecule_type, molecule_type_swap, &
-         molecule_type_target, nchain_total, nmol_types, nmoves, nnstep, nstart, nstep, source, &
+         molecule_type_switch1, molecule_type_switch2, &
+         nchain_total, nmol_types, nmoves, nnstep, nstart, nstep, source, &
          start_atom, start_atom_swap, start_atom_target, start_mol
       CHARACTER(LEN=default_string_length)               :: unit_str
       CHARACTER(LEN=40), DIMENSION(1:nboxes)             :: cell_file, coords_file, data_file, &
@@ -152,7 +154,7 @@ CONTAINS
                                                             pmtrans_mol, pmvol_box
       REAL(dp), DIMENSION(:, :), POINTER                 :: conf_prob, mass
       REAL(KIND=dp)                                      :: rmin, discrete_step, pmavbmc, pmcltrans, &
-                                                            pmhmc, pmswap, pmtraion, pmtrans, &
+                                                            pmhmc, pmswap, pmswitch, pmtraion, pmtrans, &
                                                             pmvolume, rand, test_energy, unit_conv
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: r_temp
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: r_old
@@ -211,7 +213,7 @@ CONTAINS
                       cell_file=cell_file(1), coords_file=coords_file(1), &
                       energy_file=energy_file(1), displacement_file=displacement_file(1), &
                       lstop=lstop, nstep=nstep, nstart=nstart, pmvolume=pmvolume, pmhmc=pmhmc, &
-                      molecules_file=molecules_file(1), pmswap=pmswap, nmoves=nmoves, &
+                      molecules_file=molecules_file(1), pmswap=pmswap, pmswitch=pmswitch, nmoves=nmoves, &
                       pmtraion=pmtraion, pmtrans=pmtrans, pmcltrans=pmcltrans, iuptrans=iuptrans, &
                       iupvolume=iupvolume, ldiscrete=ldiscrete, pmtraion_mol=pmtraion_mol, &
                       lbias=lbias, iprint=iprint, pmavbmc_mol=pmavbmc_mol, &
@@ -547,6 +549,31 @@ CONTAINS
                   DEALLOCATE (atom_names_box)
                ENDDO
             ENDIF
+
+         ELSEIF (rand .LT. pmswitch) THEN
+
+            ! try a switch move
+            IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
+               WRITE (iw, *) "Attempting an identity switch move"
+               WRITE (iw, *)
+            ENDIF
+
+            ! hard coded switch pair and box_number
+            molecule_type_switch1 = 1
+            molecule_type_switch2 = 2
+            box_number = 1
+
+            ! no empty condition check
+            CALL mc_switch_move(mc_par(box_number)%mc_par, &
+                               force_env(box_number)%force_env, &
+                               bias_env(box_number)%force_env, &
+                               moves(molecule_type_switch1, box_number)%moves, & 
+                               moves(molecule_type_switch2, box_number)%moves, &
+                               energy_check(box_number), &
+                               r_old(:, :, box_number), old_energy(box_number), &
+                               molecule_type_switch1, molecule_type_switch2, &
+                               box_number, bias_energy(box_number), &
+                               last_bias_energy(box_number), rng_stream)
 
          ELSEIF (rand .LT. pmswap) THEN
 

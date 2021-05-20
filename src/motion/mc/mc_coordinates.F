@@ -38,6 +38,7 @@ MODULE mc_coordinates
    PRIVATE :: generate_avbmc_insertion
 
    PUBLIC :: generate_cbmc_swap_config, &
+             generate_cbmc_switch_config, &
              get_center_of_mass, mc_coordinate_fold, &
              find_mc_test_molecule, &
              create_discrete_array, &
@@ -618,6 +619,319 @@ CONTAINS
 
    END SUBROUTINE generate_cbmc_swap_config
 
+! **************************************************************************************************
+!> \brief takes the last molecule in a force environment and removes/regrow a bend angle
+!> \param force_env the force environment containing the coordinates
+!> \param BETA the value of 1/kT for this simulations, in a.u.
+!> \param max_val ...
+!> \param min_val ...
+!> \param exp_max_val ...
+!> \param exp_min_val ...
+!> \param nswapmoves the number of desired trial configurations
+!> \param rosenbluth_weight the Rosenbluth weight for this set of configs
+!> \param start_atom the atom number that the molecule to be removed/regrown starts on
+!> \param natoms_tot the total number of interaction sites in the box
+!> \param nunits the number of interaction sites for every molecule_type
+!> \param nunits_mol ...
+!> \param loverlap the flag that indicates if all of the configs have an
+!>                  atomic overlap
+!> \param choosen_energy the energy of the chosen config
+!> \param old_energy the energy that we subtract from all of the trial
+!>        energies to prevent numerical overflows
+!> \param ionode indicates if we're on the main CPU
+!> \param lremove is this the Rosenbluth weight for a removal box
+!> \param mol_type an array that contains the molecule type for every atom in the box
+!> \param nchains the number of molecules of each type in this box
+!> \param source the MPI source value, for broadcasts
+!> \param group the MPI group value, for broadcasts
+!> \param rng_stream the random number stream that we draw from
+!> \par
+!>      Suitable for parallel.
+! **************************************************************************************************
+   SUBROUTINE generate_cbmc_switch_config(force_env, rmin_overlap, BETA, max_val, min_val, &
+                                          exp_max_val, exp_min_val, nswapmoves, rosenbluth_weight, &
+                                          switch_atom1, switch_atom2, remove_atom, natoms_tot, &
+                                          nunits, nunits_mol1, nunits_mol2, &
+                                          loverlap, choosen_energy, old_energy, &
+                                          ionode, lremove, mol_type, nchains, &
+                                          rmin1, rmax1, rmin2, rmax2, &
+                                          source, group, rng_stream)
+
+      TYPE(force_env_type), POINTER                      :: force_env
+      REAL(KIND=dp), INTENT(IN)                          :: BETA, max_val, min_val, exp_max_val, &
+                                                            exp_min_val, rmin_overlap, rmin1, &
+                                                            rmax1, rmin2, rmax2
+      INTEGER, INTENT(IN)                                :: nswapmoves
+      REAL(KIND=dp), INTENT(OUT)                         :: rosenbluth_weight
+      INTEGER, INTENT(IN)                                :: switch_atom1, switch_atom2, &
+                                                            remove_atom, natoms_tot, &
+                                                            nunits_mol1, nunits_mol2
+      INTEGER, DIMENSION(:), INTENT(IN)                  :: nunits
+      LOGICAL, INTENT(OUT)                               :: loverlap
+      REAL(KIND=dp), INTENT(OUT)                         :: choosen_energy
+      REAL(KIND=dp), INTENT(IN)                          :: old_energy
+      LOGICAL, INTENT(IN)                                :: ionode, lremove
+      INTEGER, DIMENSION(:), INTENT(IN)                  :: mol_type, nchains
+      INTEGER, INTENT(IN)                                :: source, group
+      TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'generate_cbmc_switch_config'
+
+      INTEGER                                            :: atom_number, choosen, handle, &
+                                                            i, j, iatom, jatom, imolecule, &
+                                                            imove, molecule_number1
+      LOGICAL                                            :: all_overlaps
+      LOGICAL, ALLOCATABLE, DIMENSION(:)                 :: loverlap_array
+      REAL(KIND=dp)                                      :: bias_energy, exponent, rand, &
+                                                            total_running_weight
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: boltz_weights, trial_energy
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: r, r_old
+      REAL(KIND=dp), DIMENSION(1:3)                      :: abc, r_insert
+      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cp_subsys_type), POINTER                      :: oldsys
+      TYPE(particle_list_type), POINTER                  :: particles
+
+! begin the timing of the subroutine
+
+      CALL timeset(routineN, handle)
+
+      NULLIFY (oldsys)
+! get the particle coordinates and the cell length
+      CALL force_env_get(force_env, cell=cell, subsys=oldsys)
+      CALL get_cell(cell, abc=abc)
+      CALL cp_subsys_get(oldsys, particles=particles)
+
+      ALLOCATE (r_old(1:3, 1:natoms_tot))
+      ALLOCATE (r(1:3, 1:nswapmoves))
+      ALLOCATE (trial_energy(1:nswapmoves))
+      ALLOCATE (boltz_weights(1:nswapmoves))
+      ALLOCATE (loverlap_array(1:nswapmoves))
+
+      ! initialize the arrays that need it
+      loverlap_array(:) = .FALSE.
+      loverlap = .FALSE.
+      boltz_weights(:) = 0.0_dp
+      trial_energy(:) = 0.0_dp
+      r(:, :) = 0.0_dp
+      choosen_energy = 0.0_dp
+      rosenbluth_weight = 0.0_dp
+
+      ! save the remove coordinates
+      DO iatom = 1, natoms_tot
+         r_old(1:3, iatom) = particles%els(iatom)%r(1:3)
+      ENDDO
+
+      ! figure out which molecule number we're on for OH3 (for later use)
+      molecule_number1 = 0
+      atom_number = 1
+      DO imolecule = 1, sum(nchains(:))
+         IF (atom_number .EQ. switch_atom1) THEN
+            molecule_number1 = imolecule
+            EXIT 
+         ENDIF   
+         atom_number = atom_number + nunits(mol_type(imolecule))
+      ENDDO
+      IF (molecule_number1 == 0) &
+         CPABORT('CBMC switch move cannot find which molecule number it needs')
+
+      IF (lremove) THEN
+         CALL check_for_overlap(force_env, nchains, nunits, loverlap_array(1), &
+                                mol_type, rmin_overlap)
+         CALL mp_bcast(loverlap_array(1), source, group)
+
+         IF (loverlap_array(1)) THEN
+            IF (ionode) THEN
+               DO iatom = 1, natoms_tot
+                  WRITE (*, *) r_old(1:3, iatom)
+               ENDDO
+            ENDIF
+            CPABORT('CBMC switch move found an overlap in the old config')
+         ENDIF
+      ENDIF
+
+      DO imove = 1, nswapmoves
+
+         IF (ionode) THEN
+
+            IF (lremove) THEN
+               IF (imove .EQ. 1) THEN 
+
+                  r_insert(:) = r_old(:, remove_atom)
+
+               ELSE
+                  CALL generate_avbmc_insertion(rmin1, rmax1, &
+                                                r_old(1:3, switch_atom1),&
+                                                'in', r_insert(:), abc(:), rng_stream)
+               ENDIF                  
+
+            ELSE
+               CALL generate_avbmc_insertion(rmin2, rmax2, & 
+                                             r_old(1:3, switch_atom2),&
+                                             'in', r_insert(:), abc(:), rng_stream)
+            ENDIF
+
+         ENDIF
+
+         CALL mp_bcast(r_insert(:), source, group)
+         r(:, imove) = r_insert(:)
+
+         IF (lremove) THEN
+            ! change the coordinates of selected H in OH3                 
+            particles%els(remove_atom)%r(1:3) = r_insert(1:3)
+            !write(*,*) 'old OH3'
+            !DO i=1, nunits_mol1
+            !   write(*,*)  particles%els(switch_atom1+i-1)%r(1:3)*angstrom
+            !ENDDO
+         ELSE
+
+            ! identity switch
+            j = 1 
+            DO i = 1, nunits_mol1
+               iatom = switch_atom1 + i - 1
+               jatom = switch_atom2 + j - 1
+               IF (iatom .EQ. remove_atom) CYCLE
+               particles%els(iatom)%r(1:3) = r_old(1:3, jatom)
+               particles%els(jatom)%r(1:3) = r_old(1:3, iatom)
+               j = j + 1
+            ENDDO    
+            particles%els(remove_atom)%r(1:3) = r_insert(1:3)
+
+            !write(*,*) 'new OH3'
+            !DO i=1, nunits_mol1
+            !   write(*,*)  particles%els(switch_atom1+i-1)%r(1:3)*angstrom
+            !ENDDO
+            !write(*,*) 'new OH2'
+            !DO i=1, nunits_mol2
+            !   write(*,*)  particles%els(switch_atom2+i-1)%r(1:3)*angstrom
+            !ENDDO
+
+        ENDIF
+
+
+         ! check OH3 for both old and new config
+         CALL check_for_overlap(force_env, nchains, nunits, loverlap_array(imove), &
+                                mol_type, rmin_overlap, molecule_number=molecule_number1)
+
+         IF (loverlap_array(imove)) THEN
+            boltz_weights(imove) = 0.0_dp
+            CYCLE
+         ENDIF
+
+         CALL force_env_calc_energy_force(force_env, calc_force=.FALSE.)
+         CALL force_env_get(force_env, &
+                            potential_energy=bias_energy)
+
+         trial_energy(imove) = (bias_energy - old_energy)
+         exponent = -BETA*trial_energy(imove)
+
+         IF (exponent .GT. exp_max_val) THEN
+            boltz_weights(imove) = max_val
+         ELSEIF (exponent .LT. exp_min_val) THEN
+            boltz_weights(imove) = min_val
+         ELSE
+            boltz_weights(imove) = EXP(exponent)
+         ENDIF
+
+      ENDDO
+
+! now we need to pick a configuration based on the Rosenbluth weight,
+! which is just the sum of the Boltzmann weights
+      rosenbluth_weight = SUM(boltz_weights(:))
+      IF (rosenbluth_weight .EQ. 0.0_dp .AND. lremove) THEN
+! should never have 0.0 for an old weight...causes a divide by zero
+! in the acceptance rule
+         IF (ionode) THEN
+            WRITE (*, *) boltz_weights(1:nswapmoves)
+            WRITE (*, *) switch_atom1, switch_atom2, lremove
+            WRITE (*, *) loverlap_array(1:nswapmoves)
+            WRITE (*, *) natoms_tot
+            WRITE (*, *)
+            DO iatom = 1, natoms_tot
+               WRITE (*, *) r_old(1:3, iatom)*angstrom
+            ENDDO
+         ENDIF
+         CPABORT('CBMC swap move found a bad old weight')
+      ENDIF
+      all_overlaps = .TRUE.
+      total_running_weight = 0.0E0_dp
+      choosen = 0
+      IF (ionode) THEN
+         rand = rng_stream%next()
+      ENDIF
+      CALL mp_bcast(rand, source, group)
+      DO imove = 1, nswapmoves
+         IF (loverlap_array(imove)) CYCLE
+         all_overlaps = .FALSE.
+         total_running_weight = total_running_weight + boltz_weights(imove)
+         IF (total_running_weight .GE. rand*rosenbluth_weight) THEN
+            choosen = imove
+            EXIT
+         ENDIF
+      ENDDO
+
+      IF (all_overlaps) THEN
+         loverlap = .TRUE.
+
+! if this is an old configuration, we always choose the first one...
+! this should never be the case, but I'm testing something
+         IF (lremove) THEN
+            IF (ionode) THEN
+               WRITE (*, *) boltz_weights(1:nswapmoves)
+               WRITE (*, *) switch_atom1, switch_atom2, lremove
+               WRITE (*, *) loverlap_array(1:nswapmoves)
+               DO iatom = 1, natoms_tot
+                  WRITE (*, *) r_old(1:3, iatom)
+               ENDDO
+            ENDIF
+            CPABORT('CBMC switch move found all overlaps for the remove config')
+         ENDIF
+
+         DEALLOCATE (r_old)
+         DEALLOCATE (r)
+         DEALLOCATE (trial_energy)
+         DEALLOCATE (boltz_weights)
+         DEALLOCATE (loverlap_array)
+         CALL timestop(handle)
+         RETURN
+      ENDIF
+
+! make sure a configuration was chosen
+      IF (choosen == 0) &
+         CPABORT('CBMC switch move failed to select config')
+
+! if this is an old configuration, we always choose the first one
+      IF (lremove) choosen = 1
+
+! set the energy for the configuration
+      choosen_energy = trial_energy(choosen)
+
+! copy the coordinates to the force environment
+      IF (lremove) THEN
+         particles%els(remove_atom)%r(1:3) = r_old(1:3, remove_atom)
+      ELSE
+         j = 1
+         DO i = 1, nunits_mol1
+            iatom = switch_atom1 + i - 1
+            jatom = switch_atom2 + j - 1
+            IF (iatom .EQ. remove_atom) CYCLE
+            particles%els(iatom)%r(1:3) = r_old(1:3, jatom)
+            particles%els(jatom)%r(1:3) = r_old(1:3, iatom)
+            j = j + 1
+         ENDDO
+         particles%els(remove_atom)%r(1:3) = r(1:3, choosen)
+      ENDIF
+
+      DEALLOCATE (r_old)
+      DEALLOCATE (r)
+      DEALLOCATE (trial_energy)
+      DEALLOCATE (boltz_weights)
+      DEALLOCATE (loverlap_array)
+
+! end the timing
+      CALL timestop(handle)
+      
+   END SUBROUTINE generate_cbmc_switch_config
+   
 ! **************************************************************************************************
 !> \brief rotates a molecule randomly around the center of mass,
 !>      sequentially in x, y, and z directions

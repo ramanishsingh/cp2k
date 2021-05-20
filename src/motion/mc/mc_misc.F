@@ -175,6 +175,13 @@ CONTAINS
                             displacement=rmvolume, lbias=.FALSE., format_string=format_string, &
                             string3=string3)
 
+! Identity switch moves
+      WRITE (iw, '(A,A)') '-----------------------------------------------------', &
+         '---------------------------'
+      string2 = "Attempted       Accepted       Percent"
+      string1 = "Identity switch Moves"
+      CALL final_move_write(all_moves(1)%moves%switch, string1, string2, iw)
+
       IF (pmcltrans .GT. 0.0E0_dp) THEN
 
 ! Cluster translation moves

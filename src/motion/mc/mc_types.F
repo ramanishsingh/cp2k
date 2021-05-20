@@ -128,6 +128,7 @@ MODULE mc_types
       REAL(dp) :: rmin
       REAL(dp) :: pmavbmc
       REAL(dp) :: pmswap
+      REAL(dp) :: pmswitch
       REAL(dp) :: pmvolume, pmvol_box, pmclus_box
       REAL(dp) :: pmhmc, pmhmc_box
       REAL(dp) :: pmtraion
@@ -214,6 +215,7 @@ MODULE mc_types
       TYPE(accattempt), POINTER :: cltrans
       TYPE(accattempt), POINTER :: rot
       TYPE(accattempt), POINTER :: swap
+      TYPE(accattempt), POINTER :: switch
       TYPE(accattempt), POINTER :: volume
       TYPE(accattempt), POINTER :: hmc
       TYPE(accattempt), POINTER :: avbmc_inin
@@ -385,7 +387,7 @@ CONTAINS
    SUBROUTINE get_mc_par(mc_par, nstep, nvirial, iuptrans, iupcltrans, iupvolume, &
                          nmoves, nswapmoves, rm, cl, diff, nstart, &
                          source, group, lbias, ionode, lrestart, lstop, rmvolume, rmcltrans, rmbond, rmangle, &
-                         rmrot, rmtrans, temperature, pressure, rmin, rclus, BETA, pmswap, pmvolume, pmtraion, pmtrans, &
+                         rmrot, rmtrans, temperature, pressure, rmin, rclus, BETA, pmswap, pmswitch, pmvolume, pmtraion, pmtrans, &
                          pmcltrans, ensemble, PROGRAM, restart_file_name, molecules_file, moves_file, coords_file, &
                          energy_file, displacement_file, cell_file, dat_file, data_file, box2_file, &
                          fft_lib, iprint, rcut, ldiscrete, discrete_step, &
@@ -408,7 +410,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: rmvolume, rmcltrans
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: rmbond, rmangle, rmrot, rmtrans
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: temperature, pressure, rmin, rclus, BETA, &
-                                                            pmswap, pmvolume, pmtraion, pmtrans, &
+                                                            pmswap, pmswitch, pmvolume, pmtraion, pmtrans, &
                                                             pmcltrans
       CHARACTER(LEN=*), INTENT(OUT), OPTIONAL :: ensemble, PROGRAM, restart_file_name, &
          molecules_file, moves_file, coords_file, energy_file, displacement_file, cell_file, &
@@ -476,6 +478,7 @@ CONTAINS
       IF (PRESENT(max_val)) max_val = mc_par%max_val
       IF (PRESENT(min_val)) min_val = mc_par%min_val
       IF (PRESENT(pmswap)) pmswap = mc_par%pmswap
+      IF (PRESENT(pmswitch)) pmswitch = mc_par%pmswitch
       IF (PRESENT(pmvolume)) pmvolume = mc_par%pmvolume
       IF (PRESENT(lhmc)) lhmc = mc_par%lhmc
       IF (PRESENT(pmhmc)) pmhmc = mc_par%pmhmc
@@ -651,7 +654,7 @@ CONTAINS
    SUBROUTINE set_mc_par(mc_par, rm, cl, &
                          diff, nstart, rmvolume, rmcltrans, rmbond, rmangle, rmdihedral, rmrot, rmtrans, PROGRAM, &
                          nmoves, nswapmoves, lstop, temperature, pressure, rmin, rclus, iuptrans, iupcltrans, iupvolume, &
-                         pmswap, pmvolume, pmtraion, pmtrans, pmcltrans, BETA, rcut, iprint, lbias, nstep, &
+                         pmswap, pmswitch, pmvolume, pmtraion, pmtrans, pmcltrans, BETA, rcut, iprint, lbias, nstep, &
                          lrestart, ldiscrete, discrete_step, pmavbmc, mc_molecule_info, &
                          pmavbmc_mol, pmtrans_mol, pmrot_mol, pmtraion_mol, pmswap_mol, &
                          avbmc_method, avbmc_rmin, avbmc_rmax, avbmc_atom, pbias, pbias2, pmtarget_mol, &
@@ -675,7 +678,7 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: lstop
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: temperature, pressure, rmin, rclus
       INTEGER, INTENT(IN), OPTIONAL                      :: iuptrans, iupcltrans, iupvolume
-      REAL(KIND=dp), INTENT(IN), OPTIONAL                :: pmswap, pmvolume, pmtraion, pmtrans, &
+      REAL(KIND=dp), INTENT(IN), OPTIONAL                :: pmswap, pmswitch, pmvolume, pmtraion, pmtrans, &
                                                             pmcltrans, BETA, rcut
       INTEGER, INTENT(IN), OPTIONAL                      :: iprint
       LOGICAL, INTENT(IN), OPTIONAL                      :: lbias
@@ -738,6 +741,7 @@ CONTAINS
       IF (PRESENT(pmvol_box)) mc_par%pmvol_box = pmvol_box
       IF (PRESENT(pmclus_box)) mc_par%pmclus_box = pmclus_box
       IF (PRESENT(pmswap)) mc_par%pmswap = pmswap
+      IF (PRESENT(pmswitch)) mc_par%pmswitch = pmswitch
       IF (PRESENT(pmtrans)) mc_par%pmtrans = pmtrans
       IF (PRESENT(pmcltrans)) mc_par%pmcltrans = pmcltrans
       IF (PRESENT(pmtraion)) mc_par%pmtraion = pmtraion
@@ -1312,6 +1316,7 @@ CONTAINS
 ! then, which would ordinarily be cause for concern
       CALL section_vals_val_get(mc_section, "MOVE_PROBABILITIES%PMHMC", r_val=mc_par%pmhmc)
       CALL section_vals_val_get(mc_section, "MOVE_PROBABILITIES%PMSWAP", r_val=mc_par%pmswap)
+      CALL section_vals_val_get(mc_section, "MOVE_PROBABILITIES%PMSWITCH", r_val=mc_par%pmswitch)
       CALL section_vals_val_get(mc_section, "MOVE_PROBABILITIES%PMVOLUME", r_val=mc_par%pmvolume)
       CALL section_vals_val_get(mc_section, "MOVE_PROBABILITIES%PMAVBMC", r_val=mc_par%pmavbmc)
       CALL section_vals_val_get(mc_section, "MOVE_PROBABILITIES%PMTRANS", r_val=mc_par%pmtrans)
@@ -1578,6 +1583,8 @@ CONTAINS
             mc_par%pmvolume
          WRITE (iw, '( A,T71,F10.3 )') ' MC| pmvol_box ', &
             mc_par%pmvol_box
+         WRITE (iw, '( A,T71,F10.3 )') ' MC| pmswitch  ', &
+            mc_par%pmswitch
          WRITE (iw, '( A,T71,F10.3 )') ' MC| pmclus_box ', &
             mc_par%pmclus_box
          WRITE (iw, '( A,T71,F10.3 )') ' MC| pmhmc ', &

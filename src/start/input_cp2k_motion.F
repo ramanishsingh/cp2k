@@ -471,7 +471,7 @@ CONTAINS
 
       CALL section_create(section, __LOCATION__, name="move_probabilities", &
                           description="Parameters for fraction of moves performed for each move type.", &
-                          n_keywords=5, n_subsections=2, repeats=.FALSE.)
+                          n_keywords=6, n_subsections=2, repeats=.FALSE.)
 
       NULLIFY (keyword, subsection)
 
@@ -510,6 +510,13 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="PMSWITCH", &
+                          description="The probability of attempting an identity switch move.", &
+                          usage="PMSWITCH {real}", &
+                          type_of_var=real_t, default_r_val=0.0E0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+      
       CALL keyword_create(keyword, __LOCATION__, name="PMSWAP", &
                           description="The probability of attempting a swap move.", &
                           usage="PMSWAP {real}", &
