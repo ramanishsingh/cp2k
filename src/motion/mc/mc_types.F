@@ -1644,7 +1644,7 @@ CONTAINS
                mc_par%rmdihedral
             WRITE (iw, format_string) ' MC| rmtrans [angstroms]', &
                mc_par%rmtrans
-            WRITE (iw, format_string) ' MC| rmcltrans [angstroms]', &
+            WRITE (iw, '( A,T71,F10.3 )') ' MC| rmcltrans [angstroms]', &
                mc_par%rmcltrans
             WRITE (iw, format_string) ' MC| rmrot [degrees]', &
                mc_par%rmrot

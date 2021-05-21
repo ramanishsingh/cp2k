@@ -50,6 +50,7 @@ MODULE mc_control
    USE parallel_rng_types,              ONLY: rng_stream_type
    USE particle_list_types,             ONLY: particle_list_type
    USE physcon,                         ONLY: angstrom
+   USE mathconstants,                   ONLY: pi
 #include "../../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -90,7 +91,9 @@ CONTAINS
       INTEGER                                            :: handle, ichain, imol_type, iparticle, &
                                                             iunit, natom, nmol_types, nmolecule, &
                                                             nunits_tot, unit
-      REAL(KIND=dp)                                      :: temperature
+      REAL(KIND=dp)                                      :: temperature, rmvolume, rmcltrans
+      REAL(dp), DIMENSION(:), POINTER                    :: rmbond, rmangle, rmdihedral, &
+                                                            rmrot, rmtrans
       REAL(KIND=dp), DIMENSION(1:3)                      :: abc
       TYPE(atom_type), DIMENSION(:), POINTER             :: atom_list
       TYPE(cell_type), POINTER                           :: cell
@@ -103,7 +106,8 @@ CONTAINS
 
       ! get some data from mc_par
       CALL get_mc_par(mc_par, restart_file_name=restart_file_name, temperature=temperature, &
-                      ensemble=ensemble)
+                      ensemble=ensemble, rmvolume=rmvolume, rmcltrans=rmcltrans, rmbond=rmbond, &
+                      rmangle=rmangle, rmdihedral=rmdihedral, rmrot=rmrot, rmtrans=rmtrans)
 
       ! open the file and write some simulation parameters
       CALL open_file(file_name=restart_file_name, unit_number=unit, &
@@ -116,6 +120,7 @@ CONTAINS
                          molecule_kinds=molecule_kinds, &
                          particles=particles)
 
+      nmol_types = SIZE(molecule_kinds%els(:))
       nunits_tot = SIZE(particles%els(:))
       IF (SUM(nchains(:)) == 0) nunits_tot = 0
       WRITE (unit, *) nnstep
@@ -123,12 +128,17 @@ CONTAINS
       WRITE (unit, *) ensemble
       WRITE (unit, *) nchains(:)
       WRITE (unit, '(3(F20.10,3X))') abc(1:3)*angstrom ! in angstroms
+      WRITE (unit, *) rmvolume*angstrom**3, rmcltrans*angstrom
+      WRITE (unit, *) rmbond(1:nmol_types)*angstrom
+      WRITE (unit, *) rmangle(1:nmol_types)/pi*180.0e0_dp
+      WRITE (unit, *) rmdihedral(1:nmol_types)/pi*180.0e0_dp
+      WRITE (unit, *) rmrot(1:nmol_types)/pi*180.0e0_dp
+      WRITE (unit, *) rmtrans(1:nmol_types)*angstrom
       WRITE (unit, *)
 
       ! can't do a simple particles%els%atomic_kind%element_symbol because
       ! of the classical force_env
       IF (nunits_tot .GT. 0) THEN
-         nmol_types = SIZE(molecule_kinds%els(:))
          iparticle = 1
          DO imol_type = 1, nmol_types
             molecule_kind => molecule_kinds%els(imol_type)
@@ -176,6 +186,8 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'read_mc_restart'
 
+      CHARACTER(LEN=5)                                   :: tab_string, molecule_string
+      CHARACTER(LEN=default_string_length)               :: format_string
       CHARACTER(5), ALLOCATABLE, DIMENSION(:)            :: atom_symbols
       CHARACTER(default_string_length), &
          DIMENSION(:, :), POINTER                        :: atom_names
@@ -186,7 +198,10 @@ CONTAINS
                                                             print_level, source, unit
       INTEGER, DIMENSION(:), POINTER                     :: nchains, nunits
       LOGICAL                                            :: ionode
-      REAL(KIND=dp)                                      :: mc_temp, rand, temperature
+      REAL(KIND=dp)                                      :: mc_temp, rand, temperature, &
+                                                            rmvolume, rmcltrans
+      REAL(KIND=dp), DIMENSION(:), POINTER               :: rmbond, rmangle, rmdihedral, &
+                                                            rmrot, rmtrans
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: r
       REAL(KIND=dp), DIMENSION(1:3)                      :: abc, box_length
       TYPE(cell_type), POINTER                           :: cell
@@ -263,7 +278,6 @@ CONTAINS
 
       IF (ionode) THEN
          READ (unit, *) box_length(1:3) ! in angstroms
-         READ (unit, *)
          box_length(1:3) = box_length(1:3)/angstrom ! convert to a.u.
       ENDIF
       CALL mp_bcast(box_length, source, group)
@@ -277,6 +291,53 @@ CONTAINS
             WRITE (iw, *) 'Restart file cell length =', box_length(1:3)*angstrom
          ENDIF
       ENDIF
+
+      ALLOCATE (rmbond(1:nmol_types), rmangle(1:nmol_types), rmdihedral(1:nmol_types))
+      ALLOCATE (rmrot(1:nmol_types), rmtrans(1:nmol_types))
+      IF (ionode) THEN
+         READ (unit, *) rmvolume, rmcltrans
+         READ (unit, *) rmbond(1:nmol_types)
+         READ (unit, *) rmangle(1:nmol_types)
+         READ (unit, *) rmdihedral(1:nmol_types)
+         READ (unit, *) rmrot(1:nmol_types)
+         READ (unit, *) rmtrans(1:nmol_types)
+         READ (unit, *)
+
+         WRITE (iw, '( A )') ' MC| Maximum displacements read from restart file '
+         WRITE (iw, '( A,A,T71,F10.3 )') ' MC| rmvolume ', &
+         '[cubic angstroms]', rmvolume
+         WRITE (iw, '( A,A,T71,F10.3 )') ' MC| rmcltrans ', &
+         '[angstroms]', rmcltrans
+
+         WRITE (molecule_string, '(I2)') nmol_types
+         WRITE (tab_string, '(I4)') 81 - 10*nmol_types
+         format_string = "(A,T"//TRIM(ADJUSTL(tab_string))//","//TRIM(ADJUSTL(molecule_string))//"(2X,F8.4))"
+
+         WRITE (iw, format_string) ' MC| rmbond [angstroms]', rmbond
+         WRITE (iw, format_string) ' MC| rmangle [degrees]', rmangle
+         WRITE (iw, format_string) ' MC| rmdihedral [degrees]', rmdihedral
+         WRITE (iw, format_string) ' MC| rmtrans [angstroms]', rmtrans
+         WRITE (iw, format_string) ' MC| rmrot [degrees]', rmrot
+      ENDIF
+
+      CAll mp_bcast(rmvolume, source, group)
+      CALL mp_bcast(rmcltrans, source, group)
+      CALL mp_bcast(rmbond, source, group)
+      CALL mp_bcast(rmangle, source, group)
+      CALL mp_bcast(rmdihedral, source, group)
+      CALL mp_bcast(rmrot, source, group)
+      CALL mp_bcast(rmtrans, source, group)
+
+      rmvolume = rmvolume/angstrom**3
+      rmcltrans = rmcltrans/angstrom
+      rmbond = rmbond/angstrom
+      rmangle = rmangle/180.0e0_dp*pi
+      rmdihedral = rmdihedral/180.0e0_dp*pi
+      rmrot = rmrot/180.0e0_dp*pi
+      rmtrans = rmtrans/180.0e0_dp*pi
+
+      CALL set_mc_par(mc_par, rmvolume=rmvolume, rmcltrans=rmcltrans, rmbond=rmbond, &
+                 rmangle=rmangle, rmdihedral=rmdihedral, rmrot=rmrot, rmtrans=rmtrans)
 
       ! allocate the array holding the coordinates, and read in the coordinates,
       ! and write the dat file so we can make a new force_env
@@ -328,6 +389,7 @@ CONTAINS
       DEALLOCATE (nchains)
       DEALLOCATE (r)
       DEALLOCATE (atom_symbols)
+      DEALLOCATE (rmbond, rmangle, rmdihedral, rmrot, rmtrans)
 
    END SUBROUTINE read_mc_restart
 
