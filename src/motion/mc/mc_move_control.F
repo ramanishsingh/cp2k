@@ -441,7 +441,7 @@ CONTAINS
       INTEGER                                            :: handle, nmol_types, rm
       REAL(dp), DIMENSION(:), POINTER                    :: rmangle, rmbond, rmdihedral, rmrot, &
                                                             rmtrans
-      REAL(KIND=dp)                                      :: rmcltrans, rmvolume, test_ratio
+      REAL(KIND=dp)                                      :: rmcltrans, rmvolume, test_ratio, rcut
       TYPE(mc_molecule_info_type), POINTER               :: mc_molecule_info
 
 ! begin the timing of the subroutine
@@ -453,7 +453,7 @@ CONTAINS
 ! grab some stuff from mc_par
       CALL get_mc_par(mc_par, rmbond=rmbond, rmangle=rmangle, rmrot=rmrot, &
                       rmtrans=rmtrans, rmcltrans=rmcltrans, rmvolume=rmvolume, rm=rm, rmdihedral=rmdihedral, &
-                      mc_molecule_info=mc_molecule_info)
+                      rcut=rcut, mc_molecule_info=mc_molecule_info)
       CALL get_mc_molecule_info(mc_molecule_info, nmol_types=nmol_types)
 
       SELECT CASE (flag)
@@ -572,9 +572,9 @@ CONTAINS
                rmtrans(molecule_type) = rmtrans(molecule_type)*test_ratio
             ENDIF
 
-            ! make an upper bound...10 a.u.
-            IF (rmtrans(molecule_type) .GT. 10.0E0_dp) &
-               rmtrans(molecule_type) = 10.0E0_dp
+            ! make an upper bound...twice the rcut
+            IF (rmtrans(molecule_type) .GT. 2.0E0_dp*rcut) &
+               rmtrans(molecule_type) = 2.0E0_dp*rcut
 
             ! clear the counters
             move_updates%bias_trans%attempts = 0
@@ -603,9 +603,9 @@ CONTAINS
                rmcltrans = rmcltrans*test_ratio
             ENDIF
 
-            ! make an upper bound...10 a.u.
-            IF (rmcltrans .GT. 10.0E0_dp) &
-               rmcltrans = 10.0E0_dp
+            ! make an upper bound...twice the rcut
+            IF (rmcltrans .GT. 2.0E0_dp*rcut) &
+               rmcltrans = 2.0E0_dp*rcut
 
             ! clear the counters
             move_updates%bias_cltrans%attempts = 0
