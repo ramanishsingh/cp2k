@@ -778,12 +778,7 @@ CONTAINS
          IF (lremove) THEN
             ! change the coordinates of selected H in OH3                 
             particles%els(remove_atom)%r(1:3) = r_insert(1:3)
-            !write(*,*) 'old OH3'
-            !DO i=1, nunits_mol1
-            !   write(*,*)  particles%els(switch_atom1+i-1)%r(1:3)*angstrom
-            !ENDDO
          ELSE
-
             ! identity switch
             j = 1 
             DO i = 1, nunits_mol1
@@ -908,6 +903,18 @@ CONTAINS
 ! copy the coordinates to the force environment
       IF (lremove) THEN
          particles%els(remove_atom)%r(1:3) = r_old(1:3, remove_atom)
+
+         IF (ionode) THEN
+            WRITE(*,*) 'OLD OH3:'
+            DO i=1, nunits_mol1
+               WRITE(*,*)  particles%els(switch_atom1+i-1)%r(1:3)*angstrom
+            ENDDO
+            WRITE(*,*) 'OLD OH2'
+            DO i=1, nunits_mol2
+               write(*,*)  particles%els(switch_atom2+i-1)%r(1:3)*angstrom
+            ENDDO
+         ENDIF
+
       ELSE
          j = 1
          DO i = 1, nunits_mol1
@@ -919,6 +926,17 @@ CONTAINS
             j = j + 1
          ENDDO
          particles%els(remove_atom)%r(1:3) = r(1:3, choosen)
+
+         IF (ionode) THEN
+            WRITE(*,*) 'NEW OH3:'
+            DO i=1, nunits_mol1
+               WRITE(*,*)  particles%els(switch_atom1+i-1)%r(1:3)*angstrom
+            ENDDO
+            WRITE(*,*) 'NEW OH2'
+            DO i=1, nunits_mol2
+               write(*,*)  particles%els(switch_atom2+i-1)%r(1:3)*angstrom
+            ENDDO
+         ENDIF
       ENDIF
 
       DEALLOCATE (r_old)
