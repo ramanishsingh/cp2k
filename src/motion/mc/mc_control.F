@@ -334,7 +334,7 @@ CONTAINS
       rmangle = rmangle/180.0e0_dp*pi
       rmdihedral = rmdihedral/180.0e0_dp*pi
       rmrot = rmrot/180.0e0_dp*pi
-      rmtrans = rmtrans/180.0e0_dp*pi
+      rmtrans = rmtrans/angstrom
 
       CALL set_mc_par(mc_par, rmvolume=rmvolume, rmcltrans=rmcltrans, rmbond=rmbond, &
                  rmangle=rmangle, rmdihedral=rmdihedral, rmrot=rmrot, rmtrans=rmtrans)
