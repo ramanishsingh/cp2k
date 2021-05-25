@@ -898,7 +898,7 @@ CONTAINS
       IF (lremove) choosen = 1
 
 ! set the energy for the configuration
-      choosen_energy = trial_energy(choosen)
+      choosen_energy = trial_energy(choosen) + old_energy
 
 ! copy the coordinates to the force environment
       IF (lremove) THEN

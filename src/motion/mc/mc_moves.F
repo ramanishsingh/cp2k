@@ -2185,6 +2185,16 @@ CONTAINS
          CALL force_env_get(force_env, &
                             potential_energy=new_energy)
 
+         IF (ionode) THEN
+            WRITE(*,*) 'prefactor: ', prefactor
+            WRITE(*,*) 'new_energy: ', new_energy
+            WRITE(*,*) 'old_energy: ', old_energy
+            WRITE(*,*) 'bias_new_energy: ', bias_energy_new
+            WRITE(*,*) 'bias_old_energy: ', bias_energy_old
+            WRITE(*,*) 'weight_new: ', weight_new
+            WRITE(*,*) 'weight_old: ', weight_old
+         ENDIF
+
          del_quickstep_energy = (-BETA)*(new_energy - old_energy - &
                                          (bias_energy_new - bias_energy_old))
 
@@ -2199,10 +2209,7 @@ CONTAINS
          w = prefactor*del_quickstep_energy*weight_new/weight_old
 
          IF (ionode) THEN
-            WRITE(*,*) 'prefactor: ', prefactor
-            WRITE(*,*) 'del_quickstep_energy: ', del_quickstep_energy
-            WRITE(*,*) 'weight_new: ', weight_new
-            WRITE(*,*) 'weight_old: ', weight_old
+            WRITE(*,*) 'w: ', w
          ENDIF
       ELSE
 
