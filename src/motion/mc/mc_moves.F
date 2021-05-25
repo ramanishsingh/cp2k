@@ -2122,6 +2122,8 @@ CONTAINS
                                           avbmc_rmin(molecule_type2), avbmc_rmax(molecule_type2), &
                                           source, group, rng_stream)
                                 
+         bias_energy_new = bias_energy_new + bias_energy_old
+
       ELSE
 
          !old
