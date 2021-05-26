@@ -2204,8 +2204,10 @@ CONTAINS
             WRITE(*,*) 'prefactor: ', prefactor
             WRITE(*,*) 'new_energy: ', new_energy
             WRITE(*,*) 'old_energy: ', old_energy
+            WRITE(*,*) 'del_energy: ', new_energy - old_energy
             WRITE(*,*) 'bias_new_energy: ', bias_energy_new
             WRITE(*,*) 'bias_old_energy: ', bias_energy_old
+            WRITE(*,*) 'bias_del_energy:' , bias_energy_new - bias_energy_old
             WRITE(*,*) 'weight_new: ', weight_new
             WRITE(*,*) 'weight_old: ', weight_old
             WRITE(*,*) 'exp: ', del_quickstep_energy      

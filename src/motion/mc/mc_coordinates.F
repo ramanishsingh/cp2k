@@ -790,18 +790,7 @@ CONTAINS
                j = j + 1
             ENDDO    
             particles%els(remove_atom)%r(1:3) = r_insert(1:3)
-
-            !write(*,*) 'new OH3'
-            !DO i=1, nunits_mol1
-            !   write(*,*)  particles%els(switch_atom1+i-1)%r(1:3)*angstrom
-            !ENDDO
-            !write(*,*) 'new OH2'
-            !DO i=1, nunits_mol2
-            !   write(*,*)  particles%els(switch_atom2+i-1)%r(1:3)*angstrom
-            !ENDDO
-
-        ENDIF
-
+         ENDIF
 
          ! check OH3 for both old and new config
          CALL check_for_overlap(force_env, nchains, nunits, loverlap_array(imove), &
