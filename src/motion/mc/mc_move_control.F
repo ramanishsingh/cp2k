@@ -610,9 +610,9 @@ CONTAINS
                rmcltrans = rmcltrans*test_ratio
             ENDIF
 
-            ! make an upper bound...twice the rcut
-            IF (rmcltrans .GT. 2.0E0_dp*rcut) &
-               rmcltrans = 2.0E0_dp*rcut
+          ! make an upper bound...10 a.u.
+            IF (rmcltrans .GT. 10.0E0_dp) &
+               rmcltrans = 10.0E0_dp
 
             ! clear the counters
             move_updates%bias_cltrans%attempts = 0
