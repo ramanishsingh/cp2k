@@ -1321,8 +1321,8 @@ CONTAINS
       IF (move_type == 'in') THEN
 ! generate a random unit vector, from Allen and Tildesley
          DO
-            eta_1 = rng_stream%next()
-            eta_2 = rng_stream%next()
+            eta_1 = 1.0_dp - 2.0_dp*rng_stream%next()
+            eta_2 = 1.0_dp - 2.0_dp*rng_stream%next()
             eta_sq = eta_1**2 + eta_2**2
             IF (eta_sq .LT. 1.0_dp) THEN
                r_insert(1) = 2.0_dp*eta_1*SQRT(1.0_dp - eta_sq)
