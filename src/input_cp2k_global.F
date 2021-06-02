@@ -38,12 +38,13 @@ MODULE input_cp2k_global
                                               GRID_BACKEND_REF
    USE input_constants,                 ONLY: &
         bsse_run, callgraph_all, callgraph_master, callgraph_none, cell_opt_run, debug_run, &
-        do_atom, do_band, do_cp2k, do_dbcsr, do_diag_elpa, do_diag_scalapack, do_farming, &
-        do_fft_fftw3, do_fft_sg, do_opt_basis, do_optimize_input, do_pdgemm, do_swarm, do_tamc, &
-        do_test, do_tree_mc, do_tree_mc_ana, driver_run, ehrenfest, electronic_spectra_run, &
-        energy_force_run, energy_run, fftw_plan_estimate, fftw_plan_exhaustive, fftw_plan_measure, &
-        fftw_plan_patient, gaussian, geo_opt_run, linear_response_run, mol_dyn_run, mon_car_run, &
-        negf_run, none_run, pint_run, real_time_propagation, tree_mc_run, vib_anal
+        do_atom, do_band, do_cosma, do_cp2k, do_dbcsr, do_diag_elpa, do_diag_scalapack, &
+        do_farming, do_fft_fftw3, do_fft_sg, do_opt_basis, do_optimize_input, do_scalapack, &
+        do_swarm, do_tamc, do_test, do_tree_mc, do_tree_mc_ana, driver_run, ehrenfest, &
+        electronic_spectra_run, energy_force_run, energy_run, fftw_plan_estimate, &
+        fftw_plan_exhaustive, fftw_plan_measure, fftw_plan_patient, gaussian, geo_opt_run, &
+        linear_response_run, mol_dyn_run, mon_car_run, negf_run, none_run, pint_run, &
+        real_time_propagation, tree_mc_run, vib_anal
    USE input_keyword_types,             ONLY: keyword_create,&
                                               keyword_release,&
                                               keyword_type
@@ -113,15 +114,15 @@ CONTAINS
 #else
       default_diag = do_diag_scalapack
 #endif
-      CALL keyword_create( &
-         keyword, __LOCATION__, name="PREFERRED_DIAG_LIBRARY", &
-         description="Specifies the diagonalization library to be used. If not available, the ScaLAPACK library is used", &
-         usage="PREFERRED_DIAG_LIBRARY ELPA", &
-         default_i_val=default_diag, &
-         enum_i_vals=(/do_diag_elpa, do_diag_scalapack, do_diag_scalapack/), &
-         enum_c_vals=s2a("ELPA", "ScaLAPACK", "SL"), &
-         enum_desc=s2a("ELPA library", "ScaLAPACK library", "ScaLAPACK library"), &
-         citations=(/Marek2014/))
+      CALL keyword_create(keyword, __LOCATION__, name="PREFERRED_DIAG_LIBRARY", &
+                          description="Specifies the diagonalization library to be used. If not available, "// &
+                          "the ScaLAPACK library is used", &
+                          usage="PREFERRED_DIAG_LIBRARY ELPA", &
+                          default_i_val=default_diag, &
+                          enum_i_vals=(/do_diag_elpa, do_diag_scalapack, do_diag_scalapack/), &
+                          enum_c_vals=s2a("ELPA", "ScaLAPACK", "SL"), &
+                          enum_desc=s2a("ELPA library", "ScaLAPACK library", "ScaLAPACK library"), &
+                          citations=(/Marek2014/))
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -133,13 +134,21 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
-      CALL keyword_create( &
-         keyword, __LOCATION__, name="ELPA_KERNEL", &
-         description="Specifies the kernel to be used when ELPA is in use", &
-         default_i_val=elpa_kernel_ids(1), &
-         enum_i_vals=elpa_kernel_ids, &
-         enum_c_vals=elpa_kernel_names, &
-         enum_desc=elpa_kernel_descriptions)
+      CALL keyword_create(keyword, __LOCATION__, name="ELPA_KERNEL", &
+                          description="Specifies the kernel to be used when ELPA is in use", &
+                          default_i_val=elpa_kernel_ids(1), &
+                          enum_i_vals=elpa_kernel_ids, &
+                          enum_c_vals=elpa_kernel_names, &
+                          enum_desc=elpa_kernel_descriptions)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="ELPA_NEIGVEC_MIN", &
+                          description="Minimum number of eigenvectors for the use of the eigensolver from "// &
+                          "the ELPA library. The eigensolver from the ScaLAPACK library is used as fallback "// &
+                          "for all smaller cases", &
+                          usage="ELPA_NEIGVEC_MIN 32", &
+                          default_i_val=16)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -585,6 +594,7 @@ CONTAINS
    SUBROUTINE create_fm_section(section)
       TYPE(section_type), POINTER                        :: section
 
+      INTEGER                                            :: default_matmul
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -616,18 +626,25 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+#if defined(__COSMA)
+      default_matmul = do_cosma
+#else
+      default_matmul = do_scalapack
+#endif
+
       CALL keyword_create(keyword, __LOCATION__, name="TYPE_OF_MATRIX_MULTIPLICATION", &
                           description="Allows to switch between scalapack pdgemm and dbcsr_multiply. "// &
                           "On normal systems pdgemm is recommended on system with GPU "// &
                           "is optimized and can give better performance. NOTE: if DBCSR is employed "// &
                           "FORCE_BLOCK_SIZE should be set. The performance on GPU's depends "// &
                           "crucially on the BLOCK_SIZES. Make sure optimized kernels are available.", &
-                          usage="TYPE_OF_MATRIX_MULTIPLICATION ELPA", &
-                          default_i_val=do_pdgemm, &
-                          enum_i_vals=(/do_pdgemm, do_dbcsr/), &
-                          enum_c_vals=s2a("PDGEMM", "DBCSR_MM"), &
-                          enum_desc=s2a("Standard scalapack: pdgemm", &
-                                        "DBCSR_MM is employed. This needs local transformation of the matrices"))
+                          default_i_val=default_matmul, &
+                          enum_i_vals=(/do_scalapack, do_scalapack, do_dbcsr, do_cosma/), &
+                          enum_c_vals=s2a("SCALAPACK", "PDGEMM", "DBCSR_MM", "COSMA"), &
+                          enum_desc=s2a("Standard ScaLAPACK pdgemm", &
+                                        "Alias for ScaLAPACK", &
+                                        "DBCSR_MM is employed. This needs local transformation of the matrices", &
+                                        "COSMA is employed. See https://github.com/eth-cscs/COSMA."))
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -688,10 +705,10 @@ CONTAINS
       CALL keyword_create(keyword, __LOCATION__, name="ELPA_FORCE_REDISTRIBUTE", &
                           description="Controls how to perform redistribution when ELPA is used for diagonalization. "// &
                           "By default, matrices are redistributed only to prevent crashes in the ELPA library "// &
-                          "which happen when the original matrix is distributed on too many processors. "// &
+                          "which happens when the original matrix is distributed over too many processors. "// &
                           "By turning on this keyword, redistribution is always performed using the defined rules. ", &
                           usage="ELPA_FORCE_REDISTRIBUTE", type_of_var=logical_t, &
-                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+                          default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 

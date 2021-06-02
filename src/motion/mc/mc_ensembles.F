@@ -674,11 +674,6 @@ CONTAINS
             ENDIF
          ELSE
 
-            IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
-               WRITE (iw, *) "Attempting an inner move"
-               WRITE (iw, *)
-            ENDIF
-
             DO imove = 1, nmoves
 
                IF (ionode) rand = rng_stream%next()
@@ -686,6 +681,11 @@ CONTAINS
                IF (rand .LT. pmtraion) THEN
                   ! change molecular conformation
                   ! first, pick a box to do it for
+                  IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
+                     WRITE (iw, *) "Attempting an inner move"
+                     WRITE (iw, *)
+                  ENDIF
+
                   IF (ionode) rand = rng_stream%next()
                   CALL mp_bcast(rand, source, group)
                   IF (nboxes .EQ. 2) THEN
@@ -808,7 +808,7 @@ CONTAINS
                                               lreject, rng_stream)
                   IF (lreject) EXIT
                ELSE
-                  !     rotate a whole molecule in the system
+                  ! rotate a whole molecule in the system
                   ! pick a molecule type
                   IF (MOD(nnstep, iprint) == 0 .AND. (iw > 0)) THEN
                      WRITE (iw, *) "Attempting a molecular rotation move"
