@@ -30,7 +30,8 @@ MODULE environment
                                               eps_check_diag_default
    USE cp_fm_diag_utils,                ONLY: cp_fm_redistribute_init
    USE cp_fm_struct,                    ONLY: cp_fm_struct_config
-   USE cp_fm_types,                     ONLY: cp_fm_setup
+   USE cp_fm_types,                     ONLY: cp_fm_get_mm_type,&
+                                              cp_fm_setup
    USE cp_log_handling,                 ONLY: &
         cp_add_default_logger, cp_get_default_logger, cp_logger_create, &
         cp_logger_get_default_unit_nr, cp_logger_release, cp_logger_set, cp_logger_type, &
@@ -57,9 +58,9 @@ MODULE environment
    USE header,                          ONLY: cp2k_footer,&
                                               cp2k_header
    USE input_constants,                 ONLY: &
-        callgraph_all, callgraph_none, do_cp2k, do_diag_elpa, do_diag_scalapack, do_eip, &
-        do_farming, do_fft_fftw3, do_fft_sg, do_fist, do_qs, do_sirius, do_test, energy_run, &
-        id_development_version, mol_dyn_run, none_run
+        callgraph_all, callgraph_none, do_cosma, do_cp2k, do_dbcsr, do_diag_elpa, &
+        do_diag_scalapack, do_eip, do_farming, do_fft_fftw3, do_fft_sg, do_fist, do_qs, &
+        do_scalapack, do_sirius, do_test, energy_run, id_development_version, mol_dyn_run, none_run
    USE input_cp2k_global,               ONLY: create_global_section
    USE input_enumeration_types,         ONLY: enum_i2c,&
                                               enumeration_type
@@ -527,6 +528,7 @@ CONTAINS
       CALL section_vals_val_get(global_section, "ENABLE_MPI_IO", l_val=flag)
       CALL cp_mpi_io_set(flag)
       CALL section_vals_val_get(global_section, "ELPA_KERNEL", i_val=globenv%k_elpa)
+      CALL section_vals_val_get(global_section, "ELPA_NEIGVEC_MIN", i_val=globenv%elpa_neigvec_min)
       CALL section_vals_val_get(global_section, "ELPA_QR", l_val=globenv%elpa_qr)
       CALL section_vals_val_get(global_section, "ELPA_QR_UNSAFE", l_val=globenv%elpa_qr_unsafe)
       unit_nr = cp_print_key_unit_nr(logger, global_section, "PRINT_ELPA", extension=".Log")
@@ -751,12 +753,18 @@ CONTAINS
             ADJUSTR(TRIM(enum_i2c(enum1, globenv%prog_name_id))), &
             start_section_label//"| Project name", &
             ADJUSTR(project_name(:40)), &
+            start_section_label//"| Run type", &
+            ADJUSTR(TRIM(enum_i2c(enum2, globenv%run_type_id))), &
             start_section_label//"| FFT library", &
             ADJUSTR(globenv%default_fft_library(:40)), &
             start_section_label//"| Diagonalization library", &
-            ADJUSTR(globenv%diag_library(:40)), &
-            start_section_label//"| Run type", &
-            ADJUSTR(TRIM(enum_i2c(enum2, globenv%run_type_id)))
+            ADJUSTR(globenv%diag_library(:40))
+
+         IF (globenv%diag_library == "ELPA") THEN
+            WRITE (UNIT=output_unit, FMT="(T2,A,T71,I10)") &
+               start_section_label//"| Minimum number of eigenvectors for ELPA usage", &
+               globenv%elpa_neigvec_min
+         END IF
 
 #if defined(__CHECK_DIAG)
          ! Perform default check if no threshold value has been specified explicitly
@@ -781,6 +789,18 @@ CONTAINS
          END IF
 #endif
          CALL section_release(section)
+
+         SELECT CASE (cp_fm_get_mm_type())
+         CASE (do_scalapack)
+            WRITE (UNIT=output_unit, FMT="(T2,A,T72,A)") &
+               start_section_label//"| Matrix multiplication library", "ScaLAPACK"
+         CASE (do_dbcsr)
+            WRITE (UNIT=output_unit, FMT="(T2,A,T76,A)") &
+               start_section_label//"| Matrix multiplication library", "DBCSR"
+         CASE (do_cosma)
+            WRITE (UNIT=output_unit, FMT="(T2,A,T76,A)") &
+               start_section_label//"| Matrix multiplication library", "COSMA"
+         END SELECT
 
          CALL section_vals_val_get(global_section, "ALLTOALL_SGL", l_val=ata)
          WRITE (UNIT=output_unit, FMT="(T2,A,T80,L1)") &
@@ -1006,6 +1026,7 @@ CONTAINS
       CALL diag_init(diag_lib=TRIM(globenv%diag_library), &
                      fallback_applied=fallback_applied, &
                      elpa_kernel=globenv%k_elpa, &
+                     elpa_neigvec_min_input=globenv%elpa_neigvec_min, &
                      elpa_qr=globenv%elpa_qr, &
                      elpa_print=globenv%elpa_print, &
                      elpa_qr_unsafe=globenv%elpa_qr_unsafe, &

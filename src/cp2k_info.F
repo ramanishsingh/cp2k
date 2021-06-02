@@ -48,7 +48,7 @@ MODULE cp2k_info
 #endif
 
    CHARACTER(LEN=*), PARAMETER :: version_nr = "9.0"
-   CHARACTER(LEN=*), PARAMETER :: cp2k_year = "2020"
+   CHARACTER(LEN=*), PARAMETER :: cp2k_year = "2021"
    CHARACTER(LEN=*), PARAMETER :: cp2k_version = "CP2K version "//TRIM(version_nr)
    CHARACTER(LEN=*), PARAMETER :: cp2k_home = "https://www.cp2k.org/"
 
@@ -126,14 +126,14 @@ CONTAINS
 #if defined(__SCALAPACK)
       flags = TRIM(flags)//" scalapack"
 #endif
+#if defined(__COSMA)
+      flags = TRIM(flags)//" cosma"
+#endif
 
 #if defined(__QUIP)
       flags = TRIM(flags)//" quip"
 #endif
 
-#if defined(__ACC)
-      flags = TRIM(flags)//" acc"
-#endif
 #if defined(__PW_CUDA)
       flags = TRIM(flags)//" pw_cuda"
 #endif

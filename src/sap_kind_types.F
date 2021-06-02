@@ -238,6 +238,7 @@ CONTAINS
 
 ! *** Set up a sorting index
 
+!$OMP PARALLEL DEFAULT(NONE) SHARED(sap_int) PRIVATE(iac,na)
 !$OMP DO
       DO iac = 1, SIZE(sap_int)
          IF (.NOT. ASSOCIATED(sap_int(iac)%alist)) CYCLE
@@ -246,7 +247,7 @@ CONTAINS
          sap_int(iac)%asort(1:na) = sap_int(iac)%alist(1:na)%aatom
          CALL sort(sap_int(iac)%asort, na, sap_int(iac)%aindex)
       END DO
-!$OMP END DO
+!$OMP END PARALLEL
 
    END SUBROUTINE sap_sort
 
