@@ -792,7 +792,6 @@ CONTAINS
             particles%els(remove_atom)%r(1:3) = r_insert(1:3)
          ENDIF
 
-
          ! check OH3 for both old and new config
          CALL check_for_overlap(force_env, nchains, nunits, loverlap_array(imove), &
                                 mol_type, rmin_overlap, molecule_number=molecule_number1)
