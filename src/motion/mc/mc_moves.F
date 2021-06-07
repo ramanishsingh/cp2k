@@ -1964,7 +1964,8 @@ CONTAINS
       INTEGER                                            :: start_mol, end_mol, source, group, handle, &
                                                             jbox, natom, nswapmoves, imol_type, &
                                                             switch_atom1, switch_atom2, idum, jdum, &
-                                                            remove_atom, ipart, i, j, iatom, jatom
+                                                            remove_atom, ipart, i, j, iatom, jatom, &
+                                                            nmol_types
       INTEGER, DIMENSION(:), POINTER                     :: mol_type, nunits, nunits_tot
       INTEGER, DIMENSION(:, :), POINTER                  :: nchains
       LOGICAL                                            :: ionode, loverlap
@@ -1972,10 +1973,8 @@ CONTAINS
       REAL(KIND=dp)                                      :: BETA, del_quickstep_energy, &
                                                             exp_max_val, exp_min_val, max_val, min_val, &
                                                             new_energy, rand, w,  value, &
-                                                            rmin, avbmc_rminsq1, avbmc_rmaxsq1, &
-                                                            distsq, dx, dy, dz, rdum, prefactor, &
+                                                            rmin, rdum, prefactor, &
                                                             volume_in1, volume_in2, &
-                                                            max_angle, min_cos, &
                                                             vec_ref_len, OH1_len, OH2_len, &
                                                             cos_theta1, cos_theta2, cos_theta, &
                                                             sin_theta, phi, avbmc_rmin3, avbmc_rmax3, &
@@ -1984,7 +1983,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(1:3)                      :: abc, H1, H2, vec_ref, OH1, OH2, & 
                                                             dir_vec, zplus, vec, k_vec, new_vec, H3
       REAL(KIND=dp), DIMENSION(1:3, 1:3)                 :: OH2_mol      
-      REAL(dp), DIMENSION(:), POINTER                    :: avbmc_rmax, avbmc_rmin                                              
+      REAL(dp), DIMENSION(:), POINTER                    :: avbmc_rmax, avbmc_rmin, max_angle, min_cos
       TYPE(bond_type), DIMENSION(:), POINTER             :: bond_list      
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_subsys_type), POINTER                      :: subsys
@@ -1996,9 +1995,10 @@ CONTAINS
       CALL get_mc_par(mc_par, rmin=rmin, &
                       BETA=BETA, max_val=max_val, min_val=min_val, exp_max_val=exp_max_val, &
                       exp_min_val=exp_min_val, &
-                      avbmc_rmin=avbmc_rmin, avbmc_rmax=avbmc_rmax,ionode=ionode, source=source, &
+                      avbmc_rmin=avbmc_rmin, avbmc_rmax=avbmc_rmax, max_angle=max_angle, &
+                      ionode=ionode, source=source, &
                       group=group, mc_molecule_info=mc_molecule_info)
-      CALL get_mc_molecule_info(mc_molecule_info, nchains=nchains, nunits=nunits, &
+      CALL get_mc_molecule_info(mc_molecule_info, nmol_types=nmol_types, nchains=nchains, nunits=nunits, &
                                 nunits_tot=nunits_tot, mol_type=mol_type, names=names)
 
       NULLIFY (particles, subsys)
@@ -2059,7 +2059,7 @@ CONTAINS
 
       IF (vec_ref_len .LT. avbmc_rmin(molecule_type1) .OR. &
           vec_ref_len .GT. avbmc_rmax(molecule_type1)) THEN
-         IF (ionode) WRITE(*,*) 'failed distance check: ', SQRT(distsq)    
+         IF (ionode) WRITE(*,*) 'failed distance check: ', vec_ref_len
          CALL timestop(handle)
          RETURN
       END IF
@@ -2084,11 +2084,6 @@ CONTAINS
       !   WRITE(*,*) 'H ', OH2_mol(:, 2)*angstrom
       !   WRITE(*,*) 'H ', OH2_mol(:, 3)*angstrom
       !ENDIF
-
-      ! hard coded max deviation from tetrahedral
-      max_angle = 18.0_dp
-      max_angle = max_angle/180.0_dp*pi 
-      min_cos = COS(max_angle)
       
       ! make sure selected OH vector does not deviate more than max angle from vec_ref
       CALL find_twoH(OH2_mol, H1, H2) 
@@ -2121,8 +2116,14 @@ CONTAINS
          cos_theta = cos_theta2
       ENDIF
 
-      IF (cos_theta < min_cos) THEN
+      ALLOCATE (min_cos(1:nmol_types))
+      DO i = 1, nmol_types
+         min_cos(i) = COS(max_angle(i))
+      ENDDO
+
+      IF (cos_theta < min_cos(molecule_type1)) THEN
          IF (ionode) WRITE(*,*) 'failed angle check: ', ACOS(cos_theta)/pi*180.0
+         DEALLOCATE(min_cos)
          CALL timestop(handle)
          RETURN
       ENDIF
@@ -2162,8 +2163,10 @@ CONTAINS
       ! select cos_theta from [min_cos, 1.0]
       IF (ionode) rand = rng_stream%next()
       CALL mp_bcast(rand, source, group)
-      cos_theta = rand*(1.0_dp - min_cos) + min_cos      
+      cos_theta = rand*(1.0_dp - min_cos(molecule_type2)) + min_cos(molecule_type2)
       sin_theta = SQRT(1.0_dp - cos_theta*cos_theta)
+
+      IF(ionode) WRITE(*,*) 'angle: ', ACOS(cos_theta)/pi*180.0
 
       ! select phi from [0, 2pi)
       IF (ionode) rand = rng_stream%next()
@@ -2191,6 +2194,8 @@ CONTAINS
       sfac = (rand*(avbmc_rmax3 - avbmc_rmin3) + avbmc_rmin3)**(1.0_dp/3.0_dp)
       new_vec(:) = new_vec(:)*sfac
       H3(:) = new_vec(:) + OH2_mol(:, 1)
+
+      IF(ionode) WRITE(*,*) 'sfac: ', sfac*angstrom
 
       ! identity switch
       j = 1
@@ -2226,16 +2231,22 @@ CONTAINS
          CALL force_env_calc_energy_force(force_env, calc_force=.FALSE.)
          CALL force_env_get(force_env, potential_energy=new_energy)
 
+         ! 2/3*pi*R**2*h (h = Rcos_theta and  neglect 2/3*pi)
+         volume_in2 = (avbmc_rmax3 - avbmc_rmin3)*min_cos(molecule_type2)
+         volume_in1 = (avbmc_rmax(molecule_type1)**3 - avbmc_rmin(molecule_type1)**3)*min_cos(molecule_type1)
+         prefactor = volume_in2/volume_in1
+
          value = -BETA*(new_energy-old_energy)
          IF (value .GT. exp_max_val) THEN
             w=10.0_dp
          ELSEIF(value .LT. exp_min_val) THEN
             w=0.0_dp
          ELSE
-            w=EXP(value)
+            w=prefactor*EXP(value)
          ENDIF
 
          IF (ionode) THEN
+            WRITE(*,*) 'prefactor: ', prefactor
             WRITE(*,*) 'old_energy: ', old_energy
             WRITE(*,*) 'new_energy: ', new_energy
             WRITE(*,*) 'del_energy: ', new_energy - old_energy
@@ -2271,6 +2282,8 @@ CONTAINS
          ENDDO
          CALL cp_subsys_set(subsys, particles=particles)
       ENDIF
+
+      DEALLOCATE(min_cos)
 
 ! end the timing
       CALL timestop(handle)
