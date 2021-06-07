@@ -2038,11 +2038,19 @@ CONTAINS
       ! add offset 
       remove_atom = switch_atom1 + ipart
 
-      !IF (ionode) THEN
-      !   WRITE(*,*) 'switch_atom1: ', switch_atom1
-      !   WRITE(*,*) 'switch_atom2: ', switch_atom2
-      !   WRITE(*,*) 'remove_atom: ', remove_atom
-      !ENDIF
+      IF (ionode) THEN
+         WRITE(*,*) 'switch_atom1: ', switch_atom1
+         WRITE(*,*) 'switch_atom2: ', switch_atom2
+         WRITE(*,*) 'remove_atom: ', remove_atom
+         WRITE(*,*) 'old OH3'
+         DO i = 1, 4
+            WRITE(*,*) r_old(:, switch_atom1+i-1)*angstrom
+         ENDDO
+         WRITE(*,*) 'old OH2'
+         DO i = 1, 3
+            WRITE(*,*) r_old(:, switch_atom2+i-1)*angstrom
+         ENDDO
+      ENDIF
    
       ! make sure the distance between O & removed H in OH3 is
       ! within its rmin & rmax, otherwise reject
@@ -2184,15 +2192,6 @@ CONTAINS
       new_vec(:) = new_vec(:)*sfac
       H3(:) = new_vec(:) + OH2_mol(:, 1)
 
-      IF (ionode) THEN
-         !WRITE(*,*) 'sfac ', sfac*angstrom
-         WRITE(*,*) 'new OH3'
-         WRITE(*,*) 'O ', OH2_mol(:, 1)*angstrom
-         WRITE(*,*) 'H ', OH2_mol(:, 2)*angstrom
-         WRITE(*,*) 'H ', OH2_mol(:, 3)*angstrom
-         WRITE(*,*) 'H ', H3(:)*angstrom
-      ENDIF
-
       ! identity switch
       j = 1
       DO i = 1, 4
@@ -2205,6 +2204,17 @@ CONTAINS
       ENDDO
       particles%els(remove_atom)%r(1:3) = H3(1:3)
 
+      IF (ionode) THEN
+         WRITE(*,*) 'new OH3'
+         DO i = 1, 4
+            WRITE(*,*) particles%els(switch_atom1+i-1)%r(1:3)*angstrom
+         ENDDO
+         WRITE(*,*) 'new OH2'
+         DO i = 1, 3
+            WRITE(*,*) particles%els(switch_atom2+i-1)%r(1:3)*angstrom
+         ENDDO
+      ENDIF
+      
       ! check overlap
       CALL check_for_overlap(force_env, nchains(:, box_number), nunits(:), loverlap, mol_type(start_mol:end_mol), &
                              rmin, molecule_number=1)      
