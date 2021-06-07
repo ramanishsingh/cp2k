@@ -38,10 +38,11 @@ MODULE mc_moves
                                               cluster_search,&
                                               create_discrete_array,&
                                               generate_cbmc_swap_config,&
-                                              generate_cbmc_switch_config,&
                                               get_center_of_mass,&
                                               find_mc_test_molecule,&
-                                              create_inout_list
+                                              create_inout_list,&
+                                              cross_product,&
+                                              find_twoH
    USE mc_types,                        ONLY: get_mc_molecule_info,&
                                               get_mc_par,&
                                               mc_ekin_type,&
@@ -1932,8 +1933,6 @@ CONTAINS
 !> \brief performs an identity switch move between OH2 & OH3
 !> \param mc_par the mc parameters for the force env
 !> \param force_env the force environment used in the move
-!> \param bias_env the force environment used to bias the move, if any (it may
-!>            be null if lbias=.false. in mc_par)
 !> \param moves the structure that keeps track of how many moves have been
 !>               accepted/rejected
 !> \param energy_check the running energy difference between now and the initial
@@ -1942,24 +1941,19 @@ CONTAINS
 !> \param old_energy the energy of the force_env before the move
 !> \param molecule_type_swap the molecule type for the atom we're swapping
 !> \param box_number the number of the box we're doing this move in
-!> \param bias_energy_old the biased energy of the system before the move
-!> \param last_bias_energy the last biased energy of the system
 !> \param rng_stream the random number stream that we draw from
 !> \note     Designed for parallel.
 ! **************************************************************************************************
-   SUBROUTINE mc_switch_move(mc_par, force_env, bias_env, moves1, moves2, &
-                             energy_check, r_old, old_energy, &
-                             molecule_type1, molecule_type2, box_number, bias_energy_old, &
-                             last_bias_energy, rng_stream)
+   SUBROUTINE mc_switch_move(mc_par, force_env, moves1, moves2, energy_check, r_old, old_energy, &
+                             molecule_type1, molecule_type2, box_number, rng_stream)
 
       TYPE(mc_simpar_type), POINTER                      :: mc_par
-      TYPE(force_env_type), POINTER                      :: force_env, bias_env
+      TYPE(force_env_type), POINTER                      :: force_env
       TYPE(mc_moves_type), POINTER                       :: moves1, moves2
       REAL(KIND=dp), INTENT(INOUT)                       :: energy_check
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: r_old
       REAL(KIND=dp), INTENT(INOUT)                       :: old_energy
       INTEGER, INTENT(IN)                                :: molecule_type1, molecule_type2, box_number
-      REAL(KIND=dp), INTENT(INOUT)                       :: bias_energy_old, last_bias_energy
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'mc_switch_move'
@@ -1970,75 +1964,55 @@ CONTAINS
       INTEGER                                            :: start_mol, end_mol, source, group, handle, &
                                                             jbox, natom, nswapmoves, imol_type, &
                                                             switch_atom1, switch_atom2, idum, jdum, &
-                                                            nbond, nconnected, remove_atom, ipart
+                                                            remove_atom, ipart, i, j, iatom, jatom
       INTEGER, DIMENSION(:), POINTER                     :: mol_type, nunits, nunits_tot
       INTEGER, DIMENSION(:, :), POINTER                  :: nchains
-      LOGICAL                                            :: ionode, lbias, loverlap, ldum
+      LOGICAL                                            :: ionode, loverlap
       
-      REAL(KIND=dp)                                      :: BETA, bias_energy_new, del_quickstep_energy, &
+      REAL(KIND=dp)                                      :: BETA, del_quickstep_energy, &
                                                             exp_max_val, exp_min_val, max_val, min_val, &
-                                                            new_energy, rand, w, weight_new, weight_old, &
+                                                            new_energy, rand, w,  value, &
                                                             rmin, avbmc_rminsq1, avbmc_rmaxsq1, &
                                                             distsq, dx, dy, dz, rdum, prefactor, &
-                                                            volume_in1, volume_in2
+                                                            volume_in1, volume_in2, &
+                                                            max_angle, min_cos, &
+                                                            vec_ref_len, OH1_len, OH2_len, &
+                                                            cos_theta1, cos_theta2, cos_theta, &
+                                                            sin_theta, phi, avbmc_rmin3, avbmc_rmax3, &
+                                                            k_vec_len, sfac                                                            
 
-      REAL(KIND=dp)                                      :: connected(6)                                              
-      REAL(KIND=dp), DIMENSION(1:3)                      :: abc                                              
+      REAL(KIND=dp), DIMENSION(1:3)                      :: abc, H1, H2, vec_ref, OH1, OH2, & 
+                                                            dir_vec, zplus, vec, k_vec, new_vec, H3
+      REAL(KIND=dp), DIMENSION(1:3, 1:3)                 :: OH2_mol      
       REAL(dp), DIMENSION(:), POINTER                    :: avbmc_rmax, avbmc_rmin                                              
       TYPE(bond_type), DIMENSION(:), POINTER             :: bond_list      
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(cp_subsys_type), POINTER                      :: subsys, subsys_force
+      TYPE(cp_subsys_type), POINTER                      :: subsys
       TYPE(mc_molecule_info_type), POINTER               :: mc_molecule_info
-      TYPE(molecule_kind_list_type), POINTER             :: molecule_kinds
-      TYPE(molecule_kind_type), POINTER                  :: molecule_kind1, molecule_kind2, &
-                                                            molecule_kind_test
-      TYPE(particle_list_type), POINTER                  :: particles, particles_force
+      TYPE(particle_list_type), POINTER                  :: particles
 
       CALL timeset(routineN, handle)
 
-      CALL get_mc_par(mc_par, lbias=lbias, rmin=rmin, &
+      CALL get_mc_par(mc_par, rmin=rmin, &
                       BETA=BETA, max_val=max_val, min_val=min_val, exp_max_val=exp_max_val, &
-                      exp_min_val=exp_min_val, nswapmoves=nswapmoves, &
+                      exp_min_val=exp_min_val, &
                       avbmc_rmin=avbmc_rmin, avbmc_rmax=avbmc_rmax,ionode=ionode, source=source, &
                       group=group, mc_molecule_info=mc_molecule_info)
       CALL get_mc_molecule_info(mc_molecule_info, nchains=nchains, nunits=nunits, &
                                 nunits_tot=nunits_tot, mol_type=mol_type, names=names)
 
+      NULLIFY (particles, subsys)
+
+      CALL force_env_get(force_env, cell=cell, subsys=subsys)
+      CALL cp_subsys_get(subsys, particles=particles)
+      CALL get_cell(cell, abc=abc)
+
+      ! find out some bounds for mol_type
       start_mol = 1
       DO jbox = 1, box_number - 1
          start_mol = start_mol + SUM(nchains(:, jbox))
       ENDDO
-      end_mol = start_mol + SUM(nchains(:, box_number)) - 1
-
-      NULLIFY (particles, subsys, molecule_kinds, particles_force, subsys_force)
-
-      IF (lbias) THEN
-
-         CALL force_env_get(bias_env, cell=cell, subsys=subsys)
-
-      ELSE
-
-         CALL force_env_get(force_env, cell=cell, subsys=subsys)
-
-      ENDIF
-
-      CALL cp_subsys_get(subsys, particles=particles, molecule_kinds=molecule_kinds)
-      CALL get_cell(cell, abc=abc)
-      
-! now find the molecule kind associated with molecule_type 1 & 2
-      CALL cp_subsys_get(subsys, particles=particles, molecule_kinds=molecule_kinds)
-      DO imol_type = 1, SIZE(molecule_kinds%els(:))
-         molecule_kind_test => molecule_kinds%els(imol_type)
-         CALL get_molecule_kind(molecule_kind_test, name=name)
-         IF (trim(adjustl(name)) == trim(adjustl(names(molecule_type1)))) THEN
-            molecule_kind1 => molecule_kinds%els(imol_type)
-         ELSEIF (trim(adjustl(name)) == trim(adjustl(names(molecule_type2)))) THEN
-            molecule_kind2 => molecule_kinds%els(imol_type)     
-         ENDIF        
-      ENDDO
-
-      moves1%switch%attempts = moves1%switch%attempts + 1
-      moves2%switch%attempts = moves2%switch%attempts + 1
+      end_mol = start_mol + SUM(nchains(:, box_number)) - 1      
 
       ! randomly select a OH3 (type 1) and OH2 (type 2)
       IF (ionode) THEN
@@ -2053,172 +2027,212 @@ CONTAINS
       CALL mp_bcast(switch_atom1, source, group)
       CALL mp_bcast(switch_atom2, source, group)
 
-      ! find all the atoms connected to O in OH3
-      CALL get_molecule_kind(molecule_kind1, nbond=nbond, bond_list=bond_list)
-
-      nconnected = 0
-      DO idum = 1, nbond
-         IF (bond_list(idum)%a .EQ. 1) THEN
-            nconnected = nconnected + 1     
-            connected(nconnected) = bond_list(idum)%b
-         ELSEIF (bond_list(idum)%b .EQ. 1) THEN
-            nconnected = nconnected + 1     
-            connected(nconnected) = bond_list(idum)%a
-         ENDIF     
-      ENDDO
-
-      ! randomly select one to remove
+      moves1%switch%attempts = moves1%switch%attempts + 1
+      moves2%switch%attempts = moves2%switch%attempts + 1
+      
+      ! randomly select one H to remove
       IF (ionode) rand = rng_stream%next()
       CALL mp_bcast(rand, source, group)
-      idum = ceiling(rand*real(nconnected, dp))
-      remove_atom = connected(idum)
- 
-      ! add an offset 
-      remove_atom = switch_atom1 + remove_atom - 1
+      ipart = CEILING(rand*REAL(3, dp)) ! 1, 2, or 3
 
-      IF (ionode) THEN
-         WRITE(*,*) 'switch_atom1: ', switch_atom1
-         WRITE(*,*) 'switch_atom2: ', switch_atom2
-         WRITE(*,*) 'remove_atom: ', remove_atom
-      ENDIF
+      ! add offset 
+      remove_atom = switch_atom1 + ipart
+
+      !IF (ionode) THEN
+      !   WRITE(*,*) 'switch_atom1: ', switch_atom1
+      !   WRITE(*,*) 'switch_atom2: ', switch_atom2
+      !   WRITE(*,*) 'remove_atom: ', remove_atom
+      !ENDIF
    
       ! make sure the distance between O & removed H in OH3 is
       ! within its rmin & rmax, otherwise reject
-      dx = r_old(1, remove_atom) - r_old(1, switch_atom1)
-      dy = r_old(2, remove_atom) - r_old(2, switch_atom1)
-      dz = r_old(3, remove_atom) - r_old(3, switch_atom1)
-      dx = dx - abc(1)*anint(dx/abc(1))
-      dy = dy - abc(2)*anint(dy/abc(2))
-      dz = dz - abc(3)*anint(dz/abc(3))
-      distsq = dx*dx + dy*dy+ dz*dz
+      vec_ref(:) = r_old(:, remove_atom) - r_old(:, switch_atom1) 
+      vec_ref_len = SQRT(DOT_PRODUCT(vec_ref, vec_ref))
 
-      avbmc_rminsq1 = avbmc_rmin(molecule_type1) *  avbmc_rmin(molecule_type1)
-      avbmc_rmaxsq1 = avbmc_rmax(molecule_type1) *  avbmc_rmax(molecule_type1)
-      IF (distsq .LT. avbmc_rminsq1 .OR. distsq .GT. avbmc_rmaxsq1) THEN
-         IF (ionode) WRITE(*,*) 'failed sanity check'    
+      IF (vec_ref_len .LT. avbmc_rmin(molecule_type1) .OR. &
+          vec_ref_len .GT. avbmc_rmax(molecule_type1)) THEN
+         IF (ionode) WRITE(*,*) 'failed distance check: ', SQRT(distsq)    
          CALL timestop(handle)
          RETURN
       END IF
+
+      !IF (ionode) THEN
+      !   WRITE(*,*) 'OHselect: ', vec_ref*angstrom
+      !   WRITE(*,*) 'OHselect length', vec_ref_len*angstrom
+      !ENDIF
       
-      IF (lbias) THEN
+      ! copy OH3 into OH2_mol array
+      OH2_mol(:, 1) =  r_old(:, switch_atom1)
+      j = 2
+      DO i = 1, 3
+         IF (i .eq. ipart) CYCLE
+         OH2_mol(:, j) = r_old(:, switch_atom1 + i)
+         j = j + 1
+      ENDDO       
 
-         !old     
-         CALL generate_cbmc_switch_config(bias_env, rmin, BETA, max_val, min_val, exp_max_val, exp_min_val, & 
-                                          nswapmoves, weight_old, switch_atom1, switch_atom2, remove_atom, &
-                                          nunits_tot(box_number), nunits, nunits(molecule_type1), nunits(molecule_type2), &
-                                          ldum, rdum, bias_energy_old, &
-                                          ionode, .TRUE., mol_type(start_mol:end_mol), nchains(:, box_number), &
-                                          avbmc_rmin(molecule_type1), avbmc_rmax(molecule_type1), &
-                                          avbmc_rmin(molecule_type2), avbmc_rmax(molecule_type2), &
-                                          source, group, rng_stream)
+      !IF (ionode) THEN
+      !   WRITE(*,*) 'OH2 in OH3'
+      !   WRITE(*,*) 'O ', OH2_mol(:, 1)*angstrom
+      !   WRITE(*,*) 'H ', OH2_mol(:, 2)*angstrom
+      !   WRITE(*,*) 'H ', OH2_mol(:, 3)*angstrom
+      !ENDIF
 
-         !new
-         CALL generate_cbmc_switch_config(bias_env, rmin, BETA, max_val, min_val, exp_max_val, exp_min_val, &
-                                          nswapmoves, weight_new, switch_atom1, switch_atom2, remove_atom, &
-                                          nunits_tot(box_number), nunits, nunits(molecule_type1), nunits(molecule_type2), &
-                                          loverlap, bias_energy_new, bias_energy_old, &
-                                          ionode, .FALSE., mol_type(start_mol:end_mol), nchains(:, box_number), &
-                                          avbmc_rmin(molecule_type1), avbmc_rmax(molecule_type1), &
-                                          avbmc_rmin(molecule_type2), avbmc_rmax(molecule_type2), &
-                                          source, group, rng_stream)
-                                
-         bias_energy_new = bias_energy_new + bias_energy_old
+      ! hard coded max deviation from tetrahedral
+      max_angle = 18.0_dp
+      max_angle = max_angle/180.0_dp*pi 
+      min_cos = COS(max_angle)
+      
+      ! make sure selected OH vector does not deviate more than max angle from vec_ref
+      CALL find_twoH(OH2_mol, H1, H2) 
+      !IF (ionode) THEN
+      !   WRITE(*,*) 'old OH4 '
+      !   WRITE(*,*) 'O ', OH2_mol(:, 1)*angstrom
+      !   WRITE(*,*) 'H ', OH2_mol(:, 2)*angstrom
+      !   WRITE(*,*) 'H ', OH2_mol(:, 3)*angstrom
+      !   WRITE(*,*) 'H ', H1(:)*angstrom
+      !   WRITE(*,*) 'H ', H2(:)*angstrom
+      !ENDIF
+      
+      OH1(:) = H1(:) - OH2_mol(:, 1)
+      OH2(:) = H2(:) - OH2_mol(:, 1)
 
+      OH1_len = SQRT(DOT_PRODUCT(OH1, OH1))
+      OH2_len = SQRT(DOT_PRODUCT(OH2, OH2)) 
+      cos_theta1 = DOT_PRODUCT(vec_ref, OH1)/vec_ref_len/OH1_len
+      cos_theta2 = DOT_PRODUCT(vec_ref, OH2)/vec_ref_len/OH2_len
+
+      !IF (ionode) THEN
+      !   WRITE(*,*) 'cos: ', cos_theta1, cos_theta2
+      !   WRITE(*,*) 'angle', ACOS(cos_theta1)/pi*180.0, ACOS(cos_theta2)/pi*180.0
+      !ENDIF
+
+      ! select the smaller angle
+      IF (cos_theta1 .gt. cos_theta2) THEN
+         cos_theta = cos_theta1
       ELSE
-
-         !old
-         CALL generate_cbmc_switch_config(force_env, rmin, BETA, max_val, min_val, exp_max_val, exp_min_val, &
-                                          nswapmoves, weight_old, switch_atom1, switch_atom2, remove_atom, &
-                                          nunits_tot(box_number), nunits, nunits(molecule_type1), nunits(molecule_type2), &
-                                          ldum, rdum, old_energy, &
-                                          ionode, .TRUE., mol_type(start_mol:end_mol), nchains(:, box_number), &
-                                          avbmc_rmin(molecule_type1), avbmc_rmax(molecule_type1), &
-                                          avbmc_rmin(molecule_type2), avbmc_rmax(molecule_type2), &
-                                          source, group, rng_stream)
-             
-         !new
-         CALL generate_cbmc_switch_config(force_env, rmin, BETA, max_val, min_val, exp_max_val, exp_min_val, &
-                                          nswapmoves, weight_new, switch_atom1, switch_atom2, remove_atom, &
-                                          nunits_tot(box_number), nunits, nunits(molecule_type1), nunits(molecule_type2), &
-                                          loverlap, new_energy, old_energy, &
-                                          ionode, .FALSE., mol_type(start_mol:end_mol), nchains(:, box_number), &
-                                          avbmc_rmin(molecule_type1), avbmc_rmax(molecule_type1), &
-                                          avbmc_rmin(molecule_type2), avbmc_rmax(molecule_type2), &
-                                          source, group, rng_stream)
-
+         cos_theta = cos_theta2
       ENDIF
 
-      IF (loverlap) THEN
-
-! need to reset the old coordinates
-         IF (lbias) THEN
-            CALL force_env_get(bias_env, subsys=subsys)
-            CALL cp_subsys_get(subsys, particles=particles)
-         ELSE
-            CALL force_env_get(force_env, subsys=subsys)
-            CALL cp_subsys_get(subsys, particles=particles)
-         ENDIF
-         DO ipart = 1, nunits_tot(box_number)
-            particles%els(ipart)%r(1:3) = r_old(1:3, ipart)
-         ENDDO
-         IF (ionode) WRITE(*,*) 'all new config overlaps'
+      IF (cos_theta < min_cos) THEN
+         IF (ionode) WRITE(*,*) 'failed angle check: ', ACOS(cos_theta)/pi*180.0
          CALL timestop(handle)
          RETURN
       ENDIF
 
-      volume_in1 = 4.0_dp/3.0_dp*pi*(avbmc_rmax(molecule_type1)**3 - avbmc_rmin(molecule_type1)**3)
-      volume_in2 = 4.0_dp/3.0_dp*pi*(avbmc_rmax(molecule_type2)**3 - avbmc_rmin(molecule_type2)**3)
-      prefactor =  volume_in2/volume_in1
+      ! begin to perform the move
+      ! copy OH2 target into OH2_mol array
+      OH2_mol(:, 1:3) = r_old(:, switch_atom2:switch_atom2+2)   
+      CALL find_twoH(OH2_mol, H1, H2)  
 
-! if we're biasing, we need to compute the new energy with the full
-! potential
-      IF (lbias) THEN
-! need to give the force_env the coords from the bias_env
-         CALL force_env_get(force_env, subsys=subsys_force)
-         CALL cp_subsys_get(subsys_force, particles=particles_force)
-         CALL force_env_get(bias_env, subsys=subsys)
-         CALL cp_subsys_get(subsys, particles=particles)
-         DO ipart = 1, nunits_tot(box_number)
-            particles_force%els(ipart)%r(1:3) = particles%els(ipart)%r(1:3)
-         ENDDO
+      !IF (ionode) THEN
+      !   WRITE(*,*) 'new OH4'
+      !   WRITE(*,*) 'O ', OH2_mol(:, 1)*angstrom
+      !   WRITE(*,*) 'H ', OH2_mol(:, 2)*angstrom
+      !   WRITE(*,*) 'H ', OH2_mol(:, 3)*angstrom
+      !   WRITE(*,*) 'H ', H1(:)*angstrom
+      !   WRITE(*,*) 'H ', H2(:)*angstrom
+      !ENDIF
 
-         CALL force_env_calc_energy_force(force_env, &
-                                          calc_force=.FALSE.)
-         CALL force_env_get(force_env, &
-                            potential_energy=new_energy)
-
-         del_quickstep_energy = (-BETA)*(new_energy - old_energy - &
-                                         (bias_energy_new - bias_energy_old))
-                                 
-         IF (del_quickstep_energy .GT. exp_max_val) THEN
-            del_quickstep_energy = max_val
-         ELSEIF (del_quickstep_energy .LT. exp_min_val) THEN
-            del_quickstep_energy = 0.0_dp
-         ELSE
-            del_quickstep_energy = EXP(del_quickstep_energy)
-         ENDIF
-
-         w = prefactor*del_quickstep_energy*weight_new/weight_old
-
-         IF (ionode) THEN
-            WRITE(*,*) 'prefactor: ', prefactor
-            WRITE(*,*) 'new_energy: ', new_energy
-            WRITE(*,*) 'old_energy: ', old_energy
-            WRITE(*,*) 'del_energy: ', new_energy - old_energy
-            WRITE(*,*) 'bias_new_energy: ', bias_energy_new
-            WRITE(*,*) 'bias_old_energy: ', bias_energy_old
-            WRITE(*,*) 'bias_del_energy:' , bias_energy_new - bias_energy_old
-            WRITE(*,*) 'weight_new: ', weight_new
-            WRITE(*,*) 'weight_old: ', weight_old
-            WRITE(*,*) 'exp: ', del_quickstep_energy      
-            WRITE(*,*) 'w: ', w
-         ENDIF
+      ! randomly select a tetrahedral vector for target OH2
+      IF (ionode) rand = rng_stream%next()
+      CALL mp_bcast(rand, source, group)
+      IF (rand .LT. 0.5_dp) THEN
+          dir_vec(:) = H1(:) - OH2_mol(:, 1)
       ELSE
-
-         w = prefactor*weight_new/weight_old
+          dir_vec(:) = H2(:) - OH2_mol(:, 1)
       ENDIF
 
-! check if the move is accepted
+      !IF (ionode) THEN
+      !   WRITE(*,*) 'chosen dir_vec: ', dir_vec(:)*angstrom
+      !ENDIF
+      
+      ! randomly select a point on a spherical cap centered with z+
+      zplus(1) = 0.0_dp
+      zplus(2) = 0.0_dp
+      zplus(3) = 1.0_dp
+
+      ! select cos_theta from [min_cos, 1.0]
+      IF (ionode) rand = rng_stream%next()
+      CALL mp_bcast(rand, source, group)
+      cos_theta = rand*(1.0_dp - min_cos) + min_cos      
+      sin_theta = SQRT(1.0_dp - cos_theta*cos_theta)
+
+      ! select phi from [0, 2pi)
+      IF (ionode) rand = rng_stream%next()
+      CALL mp_bcast(rand, source, group)
+      phi = rand*2.0_dp*pi
+
+      vec(1) = sin_theta * COS(phi)
+      vec(2) = sin_theta * SIN(phi)
+      vec(3) = cos_theta
+
+      ! use rodrigues' rotation formula to rotate vec to new_vec around k_vec
+      k_vec = cross_product(zplus, dir_vec)
+      k_vec_len = SQRT(DOT_PRODUCT(k_vec, k_vec))
+      k_vec(:) = k_vec(:)/k_vec_len
+      sin_theta = k_vec_len
+      cos_theta = DOT_PRODUCT(zplus, dir_vec)
+      new_vec(:) = vec(:)*cos_theta + cross_product(k_vec, vec)*sin_theta &
+                   + DOT_PRODUCT(k_vec, vec)*(1.0_dp-cos_theta)*k_vec(:)
+
+      ! select between rmin2 & rmax2
+      IF (ionode) rand = rng_stream%next()
+      CALL mp_bcast(rand, source, group)
+      avbmc_rmin3 = avbmc_rmin(molecule_type2)**3
+      avbmc_rmax3 = avbmc_rmax(molecule_type2)**3             
+      sfac = (rand*(avbmc_rmax3 - avbmc_rmin3) + avbmc_rmin3)**(1.0_dp/3.0_dp)
+      new_vec(:) = new_vec(:)*sfac
+      H3(:) = new_vec(:) + OH2_mol(:, 1)
+
+      IF (ionode) THEN
+         !WRITE(*,*) 'sfac ', sfac*angstrom
+         WRITE(*,*) 'new OH3'
+         WRITE(*,*) 'O ', OH2_mol(:, 1)*angstrom
+         WRITE(*,*) 'H ', OH2_mol(:, 2)*angstrom
+         WRITE(*,*) 'H ', OH2_mol(:, 3)*angstrom
+         WRITE(*,*) 'H ', H3(:)*angstrom
+      ENDIF
+
+      ! identity switch
+      j = 1
+      DO i = 1, 4
+         iatom = switch_atom1 + i - 1
+         jatom = switch_atom2 + j - 1
+         IF (iatom .EQ. remove_atom) CYCLE
+         particles%els(iatom)%r(1:3) = r_old(1:3, jatom)
+         particles%els(jatom)%r(1:3) = r_old(1:3, iatom)
+         j = j + 1
+      ENDDO
+      particles%els(remove_atom)%r(1:3) = H3(1:3)
+
+      ! check overlap
+      CALL check_for_overlap(force_env, nchains(:, box_number), nunits(:), loverlap, mol_type(start_mol:end_mol), &
+                             rmin, molecule_number=1)      
+
+      IF (loverlap) THEN
+         w = 0.0_dp
+         IF (ionode) WRITE(*,*) 'overlap'
+      ELSE
+         CALL force_env_calc_energy_force(force_env, calc_force=.FALSE.)
+         CALL force_env_get(force_env, potential_energy=new_energy)
+
+         value = -BETA*(new_energy-old_energy)
+         IF (value .GT. exp_max_val) THEN
+            w=10.0_dp
+         ELSEIF(value .LT. exp_min_val) THEN
+            w=0.0_dp
+         ELSE
+            w=EXP(value)
+         ENDIF
+
+         IF (ionode) THEN
+            WRITE(*,*) 'old_energy: ', old_energy
+            WRITE(*,*) 'new_energy: ', new_energy
+            WRITE(*,*) 'del_energy: ', new_energy - old_energy
+            WRITE(*,*) 'w: ', w
+         ENDIF
+      ENDIF
+
       IF (w .GE. 1.0E0_dp) THEN
          rand = 0.0E0_dp
       ELSE
@@ -2231,24 +2245,10 @@ CONTAINS
          moves1%switch%successes = moves1%switch%successes + 1
          moves2%switch%successes = moves2%switch%successes + 1
 
-         IF (.NOT. lbias) THEN
-            new_energy = new_energy + old_energy
-         ENDIF
-
 ! update energies
          energy_check = energy_check + (new_energy - old_energy)
          old_energy = new_energy
 
-! if we're biasing the update the biasing energy
-         IF (lbias) THEN
-! need to do this outside of the routine
-            last_bias_energy = bias_energy_new
-            bias_energy_old = bias_energy_new
-         ENDIF
-
-! update coordinates
-         CALL force_env_get(force_env, subsys=subsys)
-         CALL cp_subsys_get(subsys, particles=particles)
          DO ipart = 1, nunits_tot(box_number)
             r_old(1:3, ipart) = particles%els(ipart)%r(1:3)
          ENDDO
@@ -2256,21 +2256,10 @@ CONTAINS
          IF (ionode) WRITE(*,*) 'accepted!'
       ELSE
 ! reject the move...need to restore the old coordinates
-         IF (lbias) THEN
-            CALL force_env_get(bias_env, subsys=subsys)
-            CALL cp_subsys_get(subsys, particles=particles)
-            DO ipart = 1, nunits_tot(box_number)
-               particles%els(ipart)%r(1:3) = r_old(1:3, ipart)
-            ENDDO
-            CALL cp_subsys_set(subsys, particles=particles)
-         ENDIF
-         CALL force_env_get(force_env, subsys=subsys)
-         CALL cp_subsys_get(subsys, particles=particles)
          DO ipart = 1, nunits_tot(box_number)
             particles%els(ipart)%r(1:3) = r_old(1:3, ipart)
          ENDDO
          CALL cp_subsys_set(subsys, particles=particles)
-
       ENDIF
 
 ! end the timing

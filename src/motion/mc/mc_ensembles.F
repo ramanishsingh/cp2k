@@ -566,14 +566,12 @@ CONTAINS
             ! no empty condition check
             CALL mc_switch_move(mc_par(box_number)%mc_par, &
                                force_env(box_number)%force_env, &
-                               bias_env(box_number)%force_env, &
                                moves(molecule_type_switch1, box_number)%moves, & 
                                moves(molecule_type_switch2, box_number)%moves, &
                                energy_check(box_number), &
                                r_old(:, :, box_number), old_energy(box_number), &
                                molecule_type_switch1, molecule_type_switch2, &
-                               box_number, bias_energy(box_number), &
-                               last_bias_energy(box_number), rng_stream)
+                               box_number, rng_stream)
 
          ELSEIF (rand .LT. pmswap) THEN
 
