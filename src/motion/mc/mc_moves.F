@@ -2064,10 +2064,7 @@ CONTAINS
          RETURN
       END IF
 
-      !IF (ionode) THEN
-      !   WRITE(*,*) 'OHselect: ', vec_ref*angstrom
-      !   WRITE(*,*) 'OHselect length', vec_ref_len*angstrom
-      !ENDIF
+      IF (ionode) WRITE(*,*) 'old length', vec_ref_len*angstrom
       
       ! copy OH3 into OH2_mol array
       OH2_mol(:, 1) =  r_old(:, switch_atom1)
@@ -2127,6 +2124,8 @@ CONTAINS
          CALL timestop(handle)
          RETURN
       ENDIF
+
+      IF (ionode) WRITE(*,*) 'old angle: ', ACOS(cos_theta)/pi*180.0
 
       ! begin to perform the move
       ! copy OH2 target into OH2_mol array
