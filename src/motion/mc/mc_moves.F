@@ -1941,11 +1941,12 @@ CONTAINS
 !> \param old_energy the energy of the force_env before the move
 !> \param molecule_type_swap the molecule type for the atom we're swapping
 !> \param box_number the number of the box we're doing this move in
+!> \param nnstep current MC step
 !> \param rng_stream the random number stream that we draw from
 !> \note     Designed for parallel.
 ! **************************************************************************************************
    SUBROUTINE mc_switch_move(mc_par, force_env, moves1, moves2, energy_check, r_old, old_energy, &
-                             molecule_type1, molecule_type2, box_number, rng_stream)
+                             molecule_type1, molecule_type2, box_number, nnstep, rng_stream)
 
       TYPE(mc_simpar_type), POINTER                      :: mc_par
       TYPE(force_env_type), POINTER                      :: force_env
@@ -1953,7 +1954,8 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT)                       :: energy_check
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: r_old
       REAL(KIND=dp), INTENT(INOUT)                       :: old_energy
-      INTEGER, INTENT(IN)                                :: molecule_type1, molecule_type2, box_number
+      INTEGER, INTENT(IN)                                :: molecule_type1, molecule_type2, &
+                                                            box_number, nnstep
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'mc_switch_move'
@@ -2029,7 +2031,9 @@ CONTAINS
 
       moves1%switch%attempts = moves1%switch%attempts + 1
       moves2%switch%attempts = moves2%switch%attempts + 1
-      
+
+      ALLOCATE (min_cos(1:nmol_types))
+
       ! randomly select one H to remove
       IF (ionode) rand = rng_stream%next()
       CALL mp_bcast(rand, source, group)
@@ -2039,6 +2043,7 @@ CONTAINS
       remove_atom = switch_atom1 + ipart
 
       IF (ionode) THEN
+         WRITE(*,*) 'step: ', nnstep
          WRITE(*,*) 'switch_atom1: ', switch_atom1
          WRITE(*,*) 'switch_atom2: ', switch_atom2
          WRITE(*,*) 'remove_atom: ', remove_atom
@@ -2054,12 +2059,13 @@ CONTAINS
    
       ! make sure the distance between O & removed H in OH3 is
       ! within its rmin & rmax, otherwise reject
-      vec_ref(:) = r_old(:, remove_atom) - r_old(:, switch_atom1) 
+      vec_ref(1:3) = r_old(1:3, remove_atom) - r_old(1:3, switch_atom1)
       vec_ref_len = SQRT(DOT_PRODUCT(vec_ref, vec_ref))
 
       IF (vec_ref_len .LT. avbmc_rmin(molecule_type1) .OR. &
           vec_ref_len .GT. avbmc_rmax(molecule_type1)) THEN
-         IF (ionode) WRITE(*,*) 'failed distance check: ', vec_ref_len
+         IF (ionode) WRITE(*,*) 'failed distance check: ', vec_ref_len*angstrom
+         DEALLOCATE(min_cos)
          CALL timestop(handle)
          RETURN
       END IF
@@ -2067,44 +2073,24 @@ CONTAINS
       IF (ionode) WRITE(*,*) 'old length', vec_ref_len*angstrom
       
       ! copy OH3 into OH2_mol array
-      OH2_mol(:, 1) =  r_old(:, switch_atom1)
+      OH2_mol(1:3, 1) =  r_old(1:3, switch_atom1)
       j = 2
       DO i = 1, 3
          IF (i .eq. ipart) CYCLE
-         OH2_mol(:, j) = r_old(:, switch_atom1 + i)
+         OH2_mol(1:3, j) = r_old(1:3, switch_atom1 + i)
          j = j + 1
       ENDDO       
-
-      !IF (ionode) THEN
-      !   WRITE(*,*) 'OH2 in OH3'
-      !   WRITE(*,*) 'O ', OH2_mol(:, 1)*angstrom
-      !   WRITE(*,*) 'H ', OH2_mol(:, 2)*angstrom
-      !   WRITE(*,*) 'H ', OH2_mol(:, 3)*angstrom
-      !ENDIF
       
       ! make sure selected OH vector does not deviate more than max angle from vec_ref
       CALL find_twoH(OH2_mol, H1, H2) 
-      !IF (ionode) THEN
-      !   WRITE(*,*) 'old OH4 '
-      !   WRITE(*,*) 'O ', OH2_mol(:, 1)*angstrom
-      !   WRITE(*,*) 'H ', OH2_mol(:, 2)*angstrom
-      !   WRITE(*,*) 'H ', OH2_mol(:, 3)*angstrom
-      !   WRITE(*,*) 'H ', H1(:)*angstrom
-      !   WRITE(*,*) 'H ', H2(:)*angstrom
-      !ENDIF
       
-      OH1(:) = H1(:) - OH2_mol(:, 1)
-      OH2(:) = H2(:) - OH2_mol(:, 1)
+      OH1(1:3) = H1(1:3) - OH2_mol(1:3, 1)
+      OH2(1:3) = H2(1:3) - OH2_mol(1:3, 1)
 
       OH1_len = SQRT(DOT_PRODUCT(OH1, OH1))
       OH2_len = SQRT(DOT_PRODUCT(OH2, OH2)) 
       cos_theta1 = DOT_PRODUCT(vec_ref, OH1)/vec_ref_len/OH1_len
       cos_theta2 = DOT_PRODUCT(vec_ref, OH2)/vec_ref_len/OH2_len
-
-      !IF (ionode) THEN
-      !   WRITE(*,*) 'cos: ', cos_theta1, cos_theta2
-      !   WRITE(*,*) 'angle', ACOS(cos_theta1)/pi*180.0, ACOS(cos_theta2)/pi*180.0
-      !ENDIF
 
       ! select the smaller angle
       IF (cos_theta1 .gt. cos_theta2) THEN
@@ -2113,7 +2099,6 @@ CONTAINS
          cos_theta = cos_theta2
       ENDIF
 
-      ALLOCATE (min_cos(1:nmol_types))
       DO i = 1, nmol_types
          min_cos(i) = COS(max_angle(i))
       ENDDO
@@ -2129,31 +2114,18 @@ CONTAINS
 
       ! begin to perform the move
       ! copy OH2 target into OH2_mol array
-      OH2_mol(:, 1:3) = r_old(:, switch_atom2:switch_atom2+2)   
+      OH2_mol(1:3, 1:3) = r_old(1:3, switch_atom2:switch_atom2+2)
       CALL find_twoH(OH2_mol, H1, H2)  
-
-      !IF (ionode) THEN
-      !   WRITE(*,*) 'new OH4'
-      !   WRITE(*,*) 'O ', OH2_mol(:, 1)*angstrom
-      !   WRITE(*,*) 'H ', OH2_mol(:, 2)*angstrom
-      !   WRITE(*,*) 'H ', OH2_mol(:, 3)*angstrom
-      !   WRITE(*,*) 'H ', H1(:)*angstrom
-      !   WRITE(*,*) 'H ', H2(:)*angstrom
-      !ENDIF
 
       ! randomly select a tetrahedral vector for target OH2
       IF (ionode) rand = rng_stream%next()
       CALL mp_bcast(rand, source, group)
       IF (rand .LT. 0.5_dp) THEN
-          dir_vec(:) = H1(:) - OH2_mol(:, 1)
+          dir_vec(1:3) = H1(1:3) - OH2_mol(1:3, 1)
       ELSE
-          dir_vec(:) = H2(:) - OH2_mol(:, 1)
+          dir_vec(1:3) = H2(1:3) - OH2_mol(1:3, 1)
       ENDIF
 
-      !IF (ionode) THEN
-      !   WRITE(*,*) 'chosen dir_vec: ', dir_vec(:)*angstrom
-      !ENDIF
-      
       ! randomly select a point on a spherical cap centered with z+
       zplus(1) = 0.0_dp
       zplus(2) = 0.0_dp
@@ -2165,7 +2137,7 @@ CONTAINS
       cos_theta = rand*(1.0_dp - min_cos(molecule_type2)) + min_cos(molecule_type2)
       sin_theta = SQRT(1.0_dp - cos_theta*cos_theta)
 
-      IF(ionode) WRITE(*,*) 'angle: ', ACOS(cos_theta)/pi*180.0
+      IF(ionode) WRITE(*,*) 'new angle: ', ACOS(cos_theta)/pi*180.0
 
       ! select phi from [0, 2pi)
       IF (ionode) rand = rng_stream%next()
@@ -2179,11 +2151,11 @@ CONTAINS
       ! use rodrigues' rotation formula to rotate vec to new_vec around k_vec
       k_vec = cross_product(zplus, dir_vec)
       k_vec_len = SQRT(DOT_PRODUCT(k_vec, k_vec))
-      k_vec(:) = k_vec(:)/k_vec_len
+      k_vec(1:3) = k_vec(1:3)/k_vec_len
       sin_theta = k_vec_len
       cos_theta = DOT_PRODUCT(zplus, dir_vec)
-      new_vec(:) = vec(:)*cos_theta + cross_product(k_vec, vec)*sin_theta &
-                   + DOT_PRODUCT(k_vec, vec)*(1.0_dp-cos_theta)*k_vec(:)
+      new_vec(1:3) = vec(1:3)*cos_theta + cross_product(k_vec, vec)*sin_theta &
+                   + DOT_PRODUCT(k_vec, vec)*(1.0_dp-cos_theta)*k_vec(1:3)
 
       ! select between rmin2 & rmax2
       IF (ionode) rand = rng_stream%next()
@@ -2191,10 +2163,10 @@ CONTAINS
       avbmc_rmin3 = avbmc_rmin(molecule_type2)**3
       avbmc_rmax3 = avbmc_rmax(molecule_type2)**3             
       sfac = (rand*(avbmc_rmax3 - avbmc_rmin3) + avbmc_rmin3)**(1.0_dp/3.0_dp)
-      new_vec(:) = new_vec(:)*sfac
-      H3(:) = new_vec(:) + OH2_mol(:, 1)
+      new_vec(1:3) = new_vec(1:3)*sfac
+      H3(1:3) = new_vec(1:3) + OH2_mol(1:3, 1)
 
-      IF(ionode) WRITE(*,*) 'sfac: ', sfac*angstrom
+      IF(ionode) WRITE(*,*) 'new length: ', sfac*angstrom
 
       ! identity switch
       j = 1
@@ -2279,7 +2251,6 @@ CONTAINS
          DO ipart = 1, nunits_tot(box_number)
             particles%els(ipart)%r(1:3) = r_old(1:3, ipart)
          ENDDO
-         CALL cp_subsys_set(subsys, particles=particles)
       ENDIF
 
       DEALLOCATE(min_cos)

@@ -563,7 +563,6 @@ CONTAINS
             molecule_type_switch2 = 2
             box_number = 1
 
-            ! no empty condition check
             CALL mc_switch_move(mc_par(box_number)%mc_par, &
                                force_env(box_number)%force_env, &
                                moves(molecule_type_switch1, box_number)%moves, & 
@@ -571,8 +570,16 @@ CONTAINS
                                energy_check(box_number), &
                                r_old(:, :, box_number), old_energy(box_number), &
                                molecule_type_switch1, molecule_type_switch2, &
-                               box_number, rng_stream)
+                               box_number, nnstep, rng_stream)
 
+            ! need to sync the coordinates between force_env & bias_env
+            IF (lbias) THEN
+               CALL force_env_get(bias_env(box_number)%force_env, subsys=biassys)
+               CALL cp_subsys_get(biassys, particles=particles_bias)
+               DO iparticle = 1, nunits_tot(box_number)
+                  particles_bias%els(iparticle)%r(1:3) = r_old(1:3, iparticle, box_number)
+               ENDDO
+            ENDIF
          ELSEIF (rand .LT. pmswap) THEN
 
             ! try a swap move
@@ -752,6 +759,7 @@ CONTAINS
                                                  move_type, lreject, rng_stream)
                      IF (lreject) EXIT
                   ENDIF
+
                ELSEIF (rand .LT. pmtrans) THEN
                   ! translate a whole molecule in the system
                   ! pick a molecule type
