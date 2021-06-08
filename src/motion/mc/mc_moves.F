@@ -1950,7 +1950,7 @@ CONTAINS
    SUBROUTINE mc_switch_move(mc_par, force_env, bias_env, moves1, moves2, &
                              energy_check, r_old, old_energy, &
                              molecule_type1, molecule_type2, box_number, bias_energy_old, &
-                             last_bias_energy, rng_stream)
+                             last_bias_energy, nnstep, rng_stream)
 
       TYPE(mc_simpar_type), POINTER                      :: mc_par
       TYPE(force_env_type), POINTER                      :: force_env, bias_env
@@ -1958,7 +1958,8 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT)                       :: energy_check
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: r_old
       REAL(KIND=dp), INTENT(INOUT)                       :: old_energy
-      INTEGER, INTENT(IN)                                :: molecule_type1, molecule_type2, box_number
+      INTEGER, INTENT(IN)                                :: molecule_type1, molecule_type2, &
+                                                            box_number, nnstep
       REAL(KIND=dp), INTENT(INOUT)                       :: bias_energy_old, last_bias_energy
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
@@ -2077,6 +2078,7 @@ CONTAINS
       remove_atom = switch_atom1 + remove_atom - 1
 
       IF (ionode) THEN
+         WRITE(*,*) 'step: ',         nnstep
          WRITE(*,*) 'switch_atom1: ', switch_atom1
          WRITE(*,*) 'switch_atom2: ', switch_atom2
          WRITE(*,*) 'remove_atom: ', remove_atom

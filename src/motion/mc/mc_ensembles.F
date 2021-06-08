@@ -573,7 +573,7 @@ CONTAINS
                                r_old(:, :, box_number), old_energy(box_number), &
                                molecule_type_switch1, molecule_type_switch2, &
                                box_number, bias_energy(box_number), &
-                               last_bias_energy(box_number), rng_stream)
+                               last_bias_energy(box_number), nnstep, rng_stream)
 
          ELSEIF (rand .LT. pmswap) THEN
 
