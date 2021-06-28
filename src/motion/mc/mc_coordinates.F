@@ -634,69 +634,95 @@ CONTAINS
       CHARACTER(len=*), PARAMETER                        :: routineN = 'rotate_molecule'
 
       INTEGER                                            :: handle, iunit
-      REAL(KIND=dp)                                      :: cosdg, dgamma, rand, rx, rxnew, ry, &
-                                                            rynew, rz, rznew, sindg
+      REAL(KIND=dp)                                      :: rx, rxnew, ry, rynew, rz, rznew
       REAL(KIND=dp), DIMENSION(1:3)                      :: center_of_mass
+      REAL(KIND=dp), DIMENSION(3,3)                      :: mat
 
 ! begin the timing of the subroutine
 
       CALL timeset(routineN, handle)
 
+! generate rotation matrix
+      CALL rotmat(mat, rng_stream)
+
 ! find the center of mass of the molecule
       CALL get_center_of_mass(r(:, :), natoms, center_of_mass(:), mass(:))
 
-! call a random number to figure out how far we're moving
-      rand = rng_stream%next()
-      dgamma = pi*(rand - 0.5E0_dp)*2.0E0_dp
-
-! *** set up the rotation matrix ***
-
-      cosdg = COS(dgamma)
-      sindg = SIN(dgamma)
-
-! ***    ROTATE UNITS OF I AROUND X-AXIS ***
-
-      DO iunit = 1, natoms
-         ry = r(2, iunit) - center_of_mass(2)
-         rz = r(3, iunit) - center_of_mass(3)
-         rynew = cosdg*ry + sindg*rz
-         rznew = cosdg*rz - sindg*ry
-
-         r(2, iunit) = rynew + center_of_mass(2)
-         r(3, iunit) = rznew + center_of_mass(3)
-
-      ENDDO
-
-! ***    ROTATE UNITS OF I AROUND y-AXIS ***
-
-      DO iunit = 1, natoms
-         rx = r(1, iunit) - center_of_mass(1)
-         rz = r(3, iunit) - center_of_mass(3)
-         rxnew = cosdg*rx + sindg*rz
-         rznew = cosdg*rz - sindg*rx
-
-         r(1, iunit) = rxnew + center_of_mass(1)
-         r(3, iunit) = rznew + center_of_mass(3)
-
-      ENDDO
-
-! ***    ROTATE UNITS OF I AROUND z-AXIS ***
-
       DO iunit = 1, natoms
          rx = r(1, iunit) - center_of_mass(1)
          ry = r(2, iunit) - center_of_mass(2)
-         rxnew = cosdg*rx + sindg*ry
-         rynew = cosdg*ry - sindg*rx
-
+         rz = r(3, iunit) - center_of_mass(3)
+         rxnew = mat(1, 1) * rx + mat(1, 2) * ry + mat(1, 3) * rz
+         rynew = mat(2, 1) * rx + mat(2, 2) * ry + mat(2, 3) * rz
+         rznew = mat(3, 1) * rx + mat(3, 2) * ry + mat(3, 3) * rz
          r(1, iunit) = rxnew + center_of_mass(1)
          r(2, iunit) = rynew + center_of_mass(2)
-
+         r(3, iunit) = rznew + center_of_mass(3)
       ENDDO
 
 ! end the timing
       CALL timestop(handle)
 
    END SUBROUTINE rotate_molecule
+
+!> \brief Generate a random rotational matrix
+!> Uses a four-dimentional unit vector to create the matrix.
+!> \see F. J. Vesely, J. Comp. Phys, 47, 291-296 (1982).
+!>    Use only in serial.
+   SUBROUTINE rotmat(mat, rng_stream)
+
+      REAL(KIND=dp), DIMENSION(3,3), INTENT(OUT)         :: mat
+      TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
+
+      REAL(KIND=dp)                                      :: l, u, v, r, s, s1, s2
+      REAL(KIND=dp)                                      :: l2, u2, v2, r2, lu, lv, lr, uv, ur, vr
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'rotmat'
+      INTEGER                                            :: handle
+
+      CALL timeset(routineN, handle)
+
+      ! Create a 4D unit vector (l, u, v, r)
+      DO
+         l = 2.0E0_dp * rng_stream%next() - 1.0E0_dp
+         u = 2.0E0_dp * rng_stream%next() - 1.0E0_dp
+         s1 = l * l + u * u
+         IF (s1 .LT. 1.0E0_dp) EXIT
+      ENDDO
+
+      DO
+         v = 2.0E0_dp * rng_stream%next() - 1.0E0_dp
+         r = 2.0E0_dp * rng_stream%next() - 1.0E0_dp
+         s2 = v * v + r * r
+         IF (s2 .lt. 1.0E0_dp) EXIT
+      ENDDO
+
+      s = sqrt((1.0E0_dp - s1) / s2)
+      v = v * s
+      r = r * s
+      ! Constuct the rotation matrix
+      l2 = l * l
+      u2 = u * u
+      v2 = v * v
+      r2 = r * r
+      lu = l * u
+      lv = l * v
+      lr = l * r
+      uv = u * v
+      ur = u * r
+      vr = v * r
+      mat(1, 1) = l2 - u2 - v2 + r2
+      mat(1, 2) = 2.0E0_dp * (lu - vr)
+      mat(1, 3) = 2.0E0_dp * (lv + ur)
+      mat(2, 1) = 2.0E0_dp * (lu + vr)
+      mat(2, 2) = u2 - v2 - l2 + r2
+      mat(2, 3) = 2.0E0_dp * (uv - lr)
+      mat(3, 1) = 2.0E0_dp * (lv - ur)
+      mat(3, 2) = 2.0E0_dp * (uv + lr)
+      mat(3, 3) = v2 - l2 - u2 + r2
+
+      CALL timestop(handle)
+
+   END SUBROUTINE rotmat
 
 ! **************************************************************************************************
 !> \brief selects a molecule at random to perform a MC move on...you can specify
