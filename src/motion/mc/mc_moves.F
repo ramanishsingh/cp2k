@@ -1215,13 +1215,15 @@ CONTAINS
          CPABORT("Attempted a volume move where box size got too small.")
 
 ! now compute the energy
-      CALL force_env_calc_energy_force(force_env, calc_force=.FALSE.)
-      CALL force_env_get(force_env, &
-                         potential_energy=new_energy)
+      ! Since we are only doing vol moves on box2, which is an ideal gas, we do not need to find energy 
+      ! or change in energy 
+      !CALL force_env_calc_energy_force(force_env, calc_force=.FALSE.)
+      !CALL force_env_get(force_env, &
+      !                   potential_energy=new_energy)
 
 ! accept or reject the move
 ! to prevent overflows
-      energy_term = new_energy - old_energy
+      energy_term = 0 ! making energy term zero
       volume_term = -REAL(SUM(nchains(:, box_number)), dp)/BETA* &
                     LOG(new_cell_length(1)*new_cell_length(2)*new_cell_length(3)/ &
                         (old_cell_length(1)*old_cell_length(2)*old_cell_length(3)))
@@ -1256,7 +1258,7 @@ CONTAINS
 
 ! update energies
          energy_check = energy_check + (new_energy - old_energy)
-         old_energy = new_energy
+         !old_energy = new_energy, we do not need to update the old energy, it will remain the same
 
          DO iatom = 1, nunits_tot(box_number)
             r_old(1:3, iatom) = particles_old%els(iatom)%r(1:3)

@@ -473,18 +473,19 @@ CONTAINS
                         ENDIF
                      ENDDO
                   
-
+                     ALLOCATE (r_insert_mol(1:3, 1:nunits(molecule_type)))
+                     ALLOCATE (atom_names_insert(1:nunits(molecule_type)))
 
                      iiatom = 1
                      DO iiatom = start_atom_single, start_atom_single + nunits(molecule_type) - 1
                         r_insert_mol(1:3, iiatom) = &
-                        particles_old(2)%list%els(iatom)%r(1:3)
+                        particles_old(2)%list%els(iiatom)%r(1:3)
                         iiatom = iiatom + 1
                      ENDDO
 
-                     DO iatom = 1, nunits(molecule_type)
-                        atom_names_insert(iatom) = &
-                           particles_old(2)%list%els(start_atom_rem + iatom - 1)%atomic_kind%name
+                     DO iiatom = 1, nunits(molecule_type)
+                        atom_names_insert(iiatom) = &
+                           particles_old(2)%list%els(start_atom_rem + iiatom - 1)%atomic_kind%name
                      ENDDO
 
 
@@ -499,7 +500,8 @@ CONTAINS
                                                 calc_force=.FALSE.)
                      CALL force_env_get(single_env(1)%force_env, &
                                                 potential_energy=bias_box2_molecule_energy(chain_number))
-                     
+                     DEALLOCATE (r_insert_mol)
+                     DEALLOCATE (atom_names_insert)
                   ENDDO
                   last_bias_energy(ibox)=SUM(bias_box2_molecule_energy(:))
                ELSE
@@ -706,16 +708,16 @@ CONTAINS
                                                 para_env, abc(:, ibox), nchains_box, input_declaration, &
                                                 mc_bias_file, ionode)
 
-                  IF (SUM(nchains(:, ibox)) .NE. 0) THEN
-                     CALL force_env_calc_energy_force( &
-                        bias_env(ibox)%force_env, &
-                        calc_force=.FALSE.)
-                     CALL force_env_get(bias_env(ibox)%force_env, &
-                                        potential_energy=last_bias_energy(ibox))
-                  ELSE
-                     last_bias_energy(ibox) = 0.0E0_dp
-                  ENDIF
-                  bias_energy(ibox) = last_bias_energy(ibox)
+                  !IF (SUM(nchains(:, ibox)) .NE. 0) THEN
+                  !   CALL force_env_calc_energy_force( &
+                  !      bias_env(ibox)%force_env, &
+                  !      calc_force=.FALSE.)
+                  !   CALL force_env_get(bias_env(ibox)%force_env, &
+                  !                      potential_energy=last_bias_energy(ibox))
+                  !ELSE
+                  !   last_bias_energy(ibox) = 0.0E0_dp
+                  !ENDIF
+                  !bias_energy(ibox) = last_bias_energy(ibox)
                   DEALLOCATE (atom_names_box)
                ENDDO
             ENDIF
