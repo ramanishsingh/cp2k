@@ -137,7 +137,7 @@ CONTAINS
                                                             move_unit, rm
       INTEGER, DIMENSION(1:3, 1:2)                       :: discrete_array
       INTEGER :: atom_number, box_number, cell_unit, chain_number, com_crd, com_ene, com_mol, end_mol, group, &
-         handle, ibox, idum, iiatom, imol_type, imolecule, imove, iparticle, iprint, itype, iunit, &
+         handle, iatom, ibox, idum, iiatom, imol_type, imolecule, imove, iparticle, iprint, itype, iunit, &
          iuptrans, iupvolume, iw, jbox, jdum, molecule_type, molecule_type_swap, &
          molecule_type_target, nchain_total, nmol_types, nmoves, nnstep, nstart, nstep, source, &
          start_atom, start_atom_single, start_atom_swap, start_atom_target, start_mol
@@ -350,11 +350,11 @@ CONTAINS
                   ALLOCATE (r_insert_mol(1:3, 1:nunits(molecule_type)))
                   ALLOCATE (atom_names_insert(1:nunits(molecule_type)))
                   iiatom = 1
-                  DO iiatom = start_atom_single, start_atom_single + nunits(molecule_type) - 1
+                  DO iatom = start_atom_single, start_atom_single + nunits(molecule_type) - 1
                      r_insert_mol(1:3, iiatom) = &
                      particles_old(2)%list%els(iatom)%r(1:3)
-                     atom_names_insert(iatom) = &
-                     particles_old(2)%list%els(start_atom_single + iiatom - 1)%atomic_kind%name
+                     atom_names_insert(iiatom) = &
+                     particles_old(2)%list%els(start_atom_single + iatom - 1)%atomic_kind%name
                      iiatom = iiatom + 1
                   ENDDO
 
@@ -477,15 +477,15 @@ CONTAINS
                      ALLOCATE (atom_names_insert(1:nunits(molecule_type)))
 
                      iiatom = 1
-                     DO iiatom = start_atom_single, start_atom_single + nunits(molecule_type) - 1
+                     DO iatom = start_atom_single, start_atom_single + nunits(molecule_type) - 1
                         r_insert_mol(1:3, iiatom) = &
-                        particles_old(2)%list%els(iiatom)%r(1:3)
+                        particles_old(2)%list%els(iatom)%r(1:3)
                         iiatom = iiatom + 1
                      ENDDO
-
-                     DO iiatom = 1, nunits(molecule_type)
+                     iiatom=1
+                     DO iatom = 1, nunits(molecule_type)
                         atom_names_insert(iiatom) = &
-                           particles_old(2)%list%els(start_atom_rem + iiatom - 1)%atomic_kind%name
+                           particles_old(2)%list%els(start_atom_rem + iatom - 1)%atomic_kind%name
                      ENDDO
 
 
@@ -732,7 +732,9 @@ CONTAINS
 
             CALL mc_ge_swap_move(mc_par, force_env, bias_env, moves, &
                                  energy_check(:), r_old(:, :, :), old_energy(:), input_declaration, &
-                                 para_env, bias_energy(:), last_bias_energy(:), rng_stream)
+                                 para_env, bias_energy(:), last_bias_energy(:), rng_stream, &
+                                 qs_box2_molecule_energy(:), last_qs_box2_molecule_energy(:), &
+                                 bias_box2_molecule_energy(:), last_bias_box2_molecule_energy(:))
 
             ! the number of molecules may have changed, which deallocated the whole
             ! mc_molecule_info structure

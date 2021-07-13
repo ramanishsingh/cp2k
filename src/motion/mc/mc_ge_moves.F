@@ -462,6 +462,10 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(1:3)                      :: abc_insert, abc_remove, center_of_mass, &
                                                             displace_molecule, pos_insert
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: mass
+      REAL(KIND=dp), DIMENSION(:)                        :: bias_box2_molecule_energy, &
+                                                            last_bias_box2_molecule_energy, &
+                                                            qs_box2_molecule_energy, &
+                                                            last_qs_box2_molecule_energy
       TYPE(cell_type), POINTER                           :: cell_insert, cell_remove
       TYPE(cp_subsys_p_type), DIMENSION(:), POINTER      :: oldsys
       TYPE(cp_subsys_type), POINTER                      :: insert_sys, remove_sys
