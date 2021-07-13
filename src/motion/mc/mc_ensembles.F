@@ -443,20 +443,90 @@ CONTAINS
                                           para_env, abc(:, ibox), nchains_box, input_declaration, mc_bias_file, &
                                           ionode)
             IF (SUM(nchains(:, ibox)) .NE. 0) THEN
-               CALL force_env_calc_energy_force(bias_env(ibox)%force_env, &
-                                                calc_force=.FALSE.)
-               CALL force_env_get(bias_env(ibox)%force_env, &
-                                  potential_energy=last_bias_energy(ibox))
 
+               IF ibox==2 THEN
+               !find nchains in box2, do a loop over nchains
+                  CALL get_mc_par(mc_par(ibox)%mc_par, mc_input_file=mc_input_file_box2, mc_molecule_info=mc_single_molecule_info)
+                  CALL get_mc_molecule_info(mc_single_molecule_info, nchains=nchains, &
+                             nunits=nunits, nunits_tot=nunits_tot, nmol_types=nmol_types, &
+                             atom_names=atom_names, mass=mass, mol_type=mol_type)
+
+
+                  DO chain_number= 1, SUM(nchains(:, ibox))
+                 
+                     DO itype = 1, nmol_types
+                        IF (nunits(itype) == nunits(chain_number)) THEN
+                           molecule_type = itype
+                           EXIT
+                        ENDIF
+                     ENDDO
+                  !access nunits as nunits(molecule_type)
+                  !r_insert_mol, line 652 ge_moves
+                  !find the starting index of current molecule
+                     start_atom_single = 1
+                     DO itype = 1, nmol_types
+                        IF (itype == molecule_type) THEN
+                           start_atom_single = start_atom_single + (chain_number - 1)*nunits(itype)
+                           EXIT
+                        ELSE
+                           start_atom_single = start_atom_single + nchains(itype, ibox)*nunits(itype)
+                        ENDIF
+                     ENDDO
+                  
+
+
+                     iiatom = 1
+                     DO iiatom = start_atom_single, start_atom_single + nunits(molecule_type) - 1
+                        r_insert_mol(1:3, iiatom) = &
+                        particles_old(2)%list%els(iatom)%r(1:3)
+                        iiatom = iiatom + 1
+                     ENDDO
+
+                     DO iatom = 1, nunits(molecule_type)
+                        atom_names_insert(iatom) = &
+                           particles_old(2)%list%els(start_atom_rem + iatom - 1)%atomic_kind%name
+                     ENDDO
+
+
+                     CALL mc_create_bias_force_env(single_env(2)%force_env, &
+                                                   r_insert_mol, atom_names_insert, nunits(moleculte_type), &
+                                                   para_env, abc1, 1, input_declaration, mc_bias_file, &
+                                                   ionode)
+
+
+                  
+                     CALL force_env_calc_energy_force(single_env(1)%force_env, &
+                                                calc_force=.FALSE.)
+                     CALL force_env_get(single_env(1)%force_env, &
+                                                potential_energy=bias_box2_molecule_energy(chain_number))
+                     
+                  ENDDO
+                  last_bias_energy(ibox)=SUM(bias_box2_molecule_energy(:))
+               ELSE
+
+                  !calculate for box1
+                  CALL mc_create_bias_force_env(bias_env(ibox)%force_env, &
+                                             r_old(:, :, ibox), atom_names_box(:), nunits_tot(ibox), &
+                                             para_env, abc(:, ibox), nchains_box, input_declaration, mc_bias_file, &
+                                             ionode)
+                  CALL force_env_calc_energy_force(bias_env(ibox)%force_env, &
+                                                  calc_force=.FALSE.)
+                  CALL force_env_get(bias_env(ibox)%force_env, &
+                                  potential_energy=last_bias_energy(ibox))
+               ENDIF
             ELSE
+               !show zero energy for box if zero chains
                last_bias_energy(ibox) = 0.0E0_dp
             ENDIF
+            
+            
             bias_energy(ibox) = last_bias_energy(ibox)
             DEALLOCATE (atom_names_box)
          ENDIF
          lnew_bias_env = .FALSE.
 
       ENDDO
+
 
       ! back to seriel for a bunch of I/O stuff
       IF (ionode) THEN
