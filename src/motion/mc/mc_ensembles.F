@@ -54,7 +54,8 @@ MODULE mc_ensembles
                                               mc_quickstep_move
    USE mc_misc,                         ONLY: final_mc_write,&
                                               mc_averages_create,&
-                                              mc_averages_release
+                                              mc_averages_release,&
+                                              mc_make_dat_file_new
    USE mc_move_control,                 ONLY: init_mc_moves,&
                                               mc_move_update,&
                                               mc_moves_release,&
@@ -123,7 +124,7 @@ CONTAINS
       CHARACTER(len=*), PARAMETER                        :: routineN = 'mc_run_ensemble'
 
       CHARACTER(default_string_length), ALLOCATABLE, &
-         DIMENSION(:)                                    :: atom_names_box
+         DIMENSION(:)                                    :: atom_names_box, atom_names_insert
       CHARACTER(default_string_length), &
          DIMENSION(:, :), POINTER                        :: atom_names
       CHARACTER(LEN=20)                                  :: ensemble
@@ -135,15 +136,20 @@ CONTAINS
       INTEGER, DIMENSION(1:nboxes)                       :: box_flag, cl, data_unit, diff, istep, &
                                                             move_unit, rm
       INTEGER, DIMENSION(1:3, 1:2)                       :: discrete_array
-      INTEGER :: atom_number, box_number, cell_unit, com_crd, com_ene, com_mol, end_mol, group, &
-         handle, ibox, idum, imol_type, imolecule, imove, iparticle, iprint, itype, iunit, &
+      INTEGER :: atom_number, box_number, cell_unit, chain_number, com_crd, com_ene, com_mol, end_mol, group, &
+         handle, ibox, idum, iiatom, imol_type, imolecule, imove, iparticle, iprint, itype, iunit, &
          iuptrans, iupvolume, iw, jbox, jdum, molecule_type, molecule_type_swap, &
          molecule_type_target, nchain_total, nmol_types, nmoves, nnstep, nstart, nstep, source, &
-         start_atom, start_atom_swap, start_atom_target, start_mol
+         start_atom, start_atom_single, start_atom_swap, start_atom_target, start_mol
       CHARACTER(LEN=default_string_length)               :: unit_str
       CHARACTER(LEN=40), DIMENSION(1:nboxes)             :: cell_file, coords_file, data_file, &
                                                             displacement_file, energy_file, &
                                                             molecules_file, moves_file
+      REAL(KIND=dp), DIMENSION(:)                        :: bias_box2_molecule_energy, &
+                                                            last_bias_box2_molecule_energy, &
+                                                            qs_box2_molecule_energy, &
+                                                            last_qs_box2_molecule_energy
+
       LOGICAL                                            :: ionode, lbias, ldiscrete, lhmc, &
                                                             lnew_bias_env, loverlap, lreject, &
                                                             lstop, should_stop
@@ -155,18 +161,19 @@ CONTAINS
                                                             pmhmc, pmswap, pmtraion, pmtrans, &
                                                             pmvolume, rand, test_energy, unit_conv
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: r_temp
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: r_old
-      REAL(KIND=dp), DIMENSION(1:3, 1:nboxes)            :: abc
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: r_old, r_insert_mol
+      REAL(KIND=dp), DIMENSION(1:3, 1:nboxes)            :: abc, abc1
       REAL(KIND=dp), DIMENSION(1:nboxes)                 :: bias_energy, energy_check, final_energy, &
                                                             initial_energy, last_bias_energy, &
                                                             old_energy
-      TYPE(cell_p_type), DIMENSION(:), POINTER           :: cell
+      TYPE(cell_p_type), DIMENSION(:), POINTER           :: cell, cell1
       TYPE(cp_subsys_p_type), DIMENSION(:), POINTER      :: oldsys
       TYPE(cp_subsys_type), POINTER                      :: biassys
-      TYPE(force_env_p_type), DIMENSION(:), POINTER      :: bias_env, force_env
+      TYPE(force_env_p_type), DIMENSION(:), POINTER      :: bias_env, force_env, single_env
       TYPE(mc_averages_p_type), DIMENSION(:), POINTER    :: averages
-      TYPE(mc_input_file_type), POINTER                  :: mc_bias_file
-      TYPE(mc_molecule_info_type), POINTER               :: mc_molecule_info
+      TYPE(mc_input_file_type), POINTER                  :: mc_bias_file, &
+                                                            mc_input_file_box2
+      TYPE(mc_molecule_info_type), POINTER               :: mc_molecule_info, mc_single_molecule_info
       TYPE(mc_moves_p_type), DIMENSION(:), POINTER       :: test_moves
       TYPE(mc_moves_p_type), DIMENSION(:, :), POINTER    :: move_updates, moves
       TYPE(mc_simulation_parameters_p_type), &
@@ -183,6 +190,7 @@ CONTAINS
       ! allocate a whole bunch of stuff based on how many boxes we have
       ALLOCATE (force_env(1:nboxes))
       ALLOCATE (bias_env(1:nboxes))
+      ALLOCATE (single_env(1:nboxes))
       ALLOCATE (cell(1:nboxes))
       ALLOCATE (particles_old(1:nboxes))
       ALLOCATE (oldsys(1:nboxes))
@@ -191,6 +199,7 @@ CONTAINS
       ALLOCATE (pmvol_box(1:nboxes))
       ALLOCATE (pmclus_box(1:nboxes))
       ALLOCATE (pmhmc_box(1:nboxes))
+      !ALLOCATE (r_insert_mol(1:3, 1:3))
 
       DO ibox = 1, nboxes
          CALL get_mc_env(mc_env(ibox)%mc_env, &
@@ -272,6 +281,19 @@ CONTAINS
       energy_check(:) = 0.0E0_dp
       box_flag(:) = 0
       istep(:) = 0
+      
+      
+      DO ibox = 1, 2
+         CALL force_env_get(force_env(ibox)%force_env, &
+                               subsys=oldsys(ibox)%subsys)
+         CALL cp_subsys_get(oldsys(ibox)%subsys, &
+                               particles=particles_old(ibox)%list)
+      ENDDO
+
+      CALL force_env_get(force_env(1)%force_env, &
+                            cell=cell1)
+      CALL get_cell(cell1, abc=abc1)
+
 
       DO ibox = 1, nboxes
          ! initialize the moves array, the arrays for updating maximum move
@@ -284,14 +306,95 @@ CONTAINS
 
          ! find the energy of the initial configuration
          IF (SUM(nchains(:, ibox)) .NE. 0) THEN
-            CALL force_env_calc_energy_force(force_env(ibox)%force_env, &
+
+            IF (ibox==2) THEN
+            !find nchains in box2, do a loop over nchains
+               CALL get_mc_par(mc_par(ibox)%mc_par, mc_input_file=mc_input_file_box2, mc_molecule_info=mc_single_molecule_info)
+               CALL get_mc_molecule_info(mc_single_molecule_info, nchains=nchains, &
+                             nunits=nunits, nunits_tot=nunits_tot, nmol_types=nmol_types, &
+                             atom_names=atom_names, mass=mass, mol_type=mol_type)
+
+
+               DO chain_number= 1, SUM(nchains(:, ibox))
+                  !change force environment so that you are only sending one molecule inside it 
+                  !to calc energy
+                  !also remember to pass the box1 size as cell size
+                  
+                  !the next line is copied rom mc_ge_moves line 743, do I need to allocate mc_input_file (or the variable in which I am storing mc_input_file)
+                  
+                  !get the cell size of box1
+                  
+                  ! this subroutine (mc make dat file new) is in mc_misc
+                  !how do I determine the molecule type? loop over all types and match mass and nunits?
+                  DO itype = 1, nmol_types
+                     IF (nunits(itype) == nunits(chain_number)) THEN
+                        molecule_type = itype
+                        EXIT
+                     ENDIF
+                  ENDDO
+                  !access nunits as nunits(molecule_type)
+                  !r_insert_mol, line 652 ge_moves
+                  !find the starting index of current molecule
+                  
+                  start_atom_single = 1
+                  DO itype = 1, nmol_types
+                     IF (itype == molecule_type) THEN
+                        start_atom_single = start_atom_single + (chain_number - 1)*nunits(itype)
+                        EXIT
+                     ELSE
+                        start_atom_single = start_atom_single + nchains(itype, ibox)*nunits(itype)
+                     ENDIF
+                  ENDDO
+                  
+
+                  ALLOCATE (r_insert_mol(1:3, 1:nunits(molecule_type)))
+                  ALLOCATE (atom_names_insert(1:nunits(molecule_type)))
+                  iiatom = 1
+                  DO iiatom = start_atom_single, start_atom_single + nunits(molecule_type) - 1
+                     r_insert_mol(1:3, iiatom) = &
+                     particles_old(2)%list%els(iatom)%r(1:3)
+                     atom_names_insert(iatom) = &
+                     particles_old(2)%list%els(start_atom_single + iiatom - 1)%atomic_kind%name
+                     iiatom = iiatom + 1
+                  ENDDO
+
+
+
+                  CALL mc_make_dat_file_new(r_insert_mol, atom_names_insert, nunits(moleculte_type), &
+                                         abc1, 'temp_single_molecule.dat', 1, &
+                                         mc_input_file_box2)
+
+                  ! dat file is made, now pass it into mc_create_force_env, which is in the mc_control module 
+
+                  ! what all things I need to allocate here, what are para_env and input declaration 
+                  CALL mc_create_force_env(single_env(2)%force_env, input_declaration, para_env, 'temp_single_molecule.dat')
+
+
+
+                  CALL force_env_calc_energy_force(single_env(2)%force_env, &
                                              calc_force=.FALSE.)
-            CALL force_env_get(force_env(ibox)%force_env, &
-                               potential_energy=old_energy(ibox))
+                  CALL force_env_get(single_env(2)%force_env, &
+                                             potential_energy=qs_box2_molecule_energy(chain_number))
+                  !qs_box2_molecule_energy
+                  DEALLOCATE (r_insert_mol)
+                  DEALLOCATE (atom_names_insert)
+               ENDDO
+               old_energy(ibox)=SUM(qs_box2_molecule_energy(:))
+            ELSE
+               CALL force_env_calc_energy_force(force_env(ibox)%force_env, &
+                                             calc_force=.FALSE.)
+               CALL force_env_get(force_env(ibox)%force_env, &
+                                             potential_energy=old_energy(ibox))
+
+            ENDIF
+            
          ELSE
             old_energy(ibox) = 0.0E0_dp
          ENDIF
          initial_energy(ibox) = old_energy(ibox)
+
+
+
 
 ! don't care about overlaps if we're only doing HMC
 
